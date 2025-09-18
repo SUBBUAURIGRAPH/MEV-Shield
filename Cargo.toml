@@ -72,9 +72,6 @@ path = "src/main.rs"
 name = "mev-shield-cli"
 path = "src/bin/cli.rs"
 
-[[bench]]
-name = "benchmarks"
-harness = false
 
 [profile.release]
 opt-level = 3
