@@ -1,0 +1,273 @@
+name: Test JIRA Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: 'JIRA Issue Key (e.g., MEV-1)'
+        required: false
+        default: 'MEV-1'
+      test_type:
+        description: 'Type of test to run'
+        required: true
+        default: 'comment'
+        type: choice
+        options:
+          - comment
+          - transition
+          - create
+          - all
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+
+jobs:
+  test-comment:
+    runs-on: ubuntu-latest
+    name: Test Comment Creation
+    if: github.event.inputs.test_type == 'comment' || github.event.inputs.test_type == 'all'
+    
+    steps:
+      - name: Test JIRA Comment
+        run: |
+          echo "Testing JIRA comment on issue ${{ github.event.inputs.issue_key }}"
+          
+          RESPONSE=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"body\": \"🧪 Test comment from GitHub Actions\\n\\nRepository: ${{ github.repository }}\\nTriggered by: ${{ github.actor }}\\nWorkflow: ${{ github.workflow }}\\nRun: ${{ github.run_number }}\\nTimestamp: $(date -u +%Y-%m-%d' '%H:%M:%S' UTC')\"
+            }" \
+            -w "\n%{http_code}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ github.event.inputs.issue_key }}/comment")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" -eq "201" ]; then
+            echo "✅ Comment created successfully!"
+            echo "Response: $BODY"
+          else
+            echo "❌ Failed to create comment"
+            echo "HTTP Code: $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+
+  test-transition:
+    runs-on: ubuntu-latest
+    name: Test Issue Transition
+    if: github.event.inputs.test_type == 'transition' || github.event.inputs.test_type == 'all'
+    
+    steps:
+      - name: Get Current Status
+        id: status
+        run: |
+          ISSUE=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ github.event.inputs.issue_key }}?fields=status")
+          
+          STATUS=$(echo "$ISSUE" | jq -r '.fields.status.name')
+          echo "Current status: $STATUS"
+          echo "current_status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Get Available Transitions
+        run: |
+          echo "Getting available transitions for ${{ github.event.inputs.issue_key }}"
+          
+          TRANSITIONS=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ github.event.inputs.issue_key }}/transitions")
+          
+          echo "Available transitions:"
+          echo "$TRANSITIONS" | jq '.transitions[] | {id: .id, name: .name}'
+
+      - name: Test Transition
+        run: |
+          # Determine next transition based on current status
+          case "${{ steps.status.outputs.current_status }}" in
+            "To Do")
+              TRANSITION="In Progress"
+              ;;
+            "In Progress")
+              TRANSITION="Code Review"
+              ;;
+            "Code Review")
+              TRANSITION="Testing"
+              ;;
+            "Testing")
+              TRANSITION="Done"
+              ;;
+            "Done")
+              TRANSITION="To Do"
+              ;;
+            *)
+              echo "Unknown status, attempting transition to In Progress"
+              TRANSITION="In Progress"
+              ;;
+          esac
+          
+          echo "Attempting transition: ${{ steps.status.outputs.current_status }} → $TRANSITION"
+          
+          RESPONSE=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\": {\"name\": \"$TRANSITION\"}}" \
+            -w "\n%{http_code}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ github.event.inputs.issue_key }}/transitions")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          
+          if [ "$HTTP_CODE" -eq "204" ]; then
+            echo "✅ Transition successful!"
+          else
+            echo "⚠️ Transition might have failed (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE"
+          fi
+
+  test-create:
+    runs-on: ubuntu-latest
+    name: Test Issue Creation
+    if: github.event.inputs.test_type == 'create' || github.event.inputs.test_type == 'all'
+    
+    steps:
+      - name: Create Test Issue
+        id: create
+        run: |
+          echo "Creating test issue in project ${{ env.JIRA_PROJECT_KEY }}"
+          
+          RESPONSE=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "fields": {
+                "project": {"key": "'"${{ env.JIRA_PROJECT_KEY }}"'"},
+                "summary": "Test Issue from GitHub Actions - '"$(date +%s)"'",
+                "description": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": "This is a test issue created by GitHub Actions to verify JIRA integration."
+                    }]
+                  }, {
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": "Repository: '"${{ github.repository }}"'"
+                    }]
+                  }, {
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": "Created by: '"${{ github.actor }}"'"
+                    }]
+                  }]
+                },
+                "issuetype": {"name": "Task"},
+                "labels": ["test", "github-actions", "mev-shield"]
+              }
+            }' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue")
+          
+          ISSUE_KEY=$(echo "$RESPONSE" | jq -r '.key')
+          
+          if [ "$ISSUE_KEY" != "null" ]; then
+            echo "✅ Issue created successfully: $ISSUE_KEY"
+            echo "issue_key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+            echo "View at: ${{ env.JIRA_BASE_URL }}/browse/$ISSUE_KEY"
+          else
+            echo "❌ Failed to create issue"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+      - name: Add Attachment
+        if: steps.create.outputs.issue_key != ''
+        run: |
+          # Create a test file
+          echo "Test attachment from GitHub Actions" > test-attachment.txt
+          echo "Timestamp: $(date)" >> test-attachment.txt
+          echo "Repository: ${{ github.repository }}" >> test-attachment.txt
+          
+          # Upload attachment
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "X-Atlassian-Token: no-check" \
+            -F "file=@test-attachment.txt" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.create.outputs.issue_key }}/attachments"
+          
+          echo "✅ Attachment added to ${{ steps.create.outputs.issue_key }}"
+
+  validate-connection:
+    runs-on: ubuntu-latest
+    name: Validate JIRA Connection
+    if: always()
+    
+    steps:
+      - name: Test API Connection
+        run: |
+          echo "Testing connection to JIRA..."
+          
+          RESPONSE=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -w "\n%{http_code}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/myself")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" -eq "200" ]; then
+            echo "✅ Successfully connected to JIRA!"
+            echo "User info:"
+            echo "$BODY" | jq '{displayName: .displayName, emailAddress: .emailAddress, accountType: .accountType}'
+          else
+            echo "❌ Failed to connect to JIRA"
+            echo "HTTP Code: $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+
+      - name: Test Board Access
+        run: |
+          echo "Testing access to board ${{ env.JIRA_BOARD_ID }}..."
+          
+          RESPONSE=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -w "\n%{http_code}" \
+            "${{ env.JIRA_BASE_URL }}/rest/agile/1.0/board/${{ env.JIRA_BOARD_ID }}")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" -eq "200" ]; then
+            echo "✅ Successfully accessed board!"
+            echo "Board info:"
+            echo "$BODY" | jq '{id: .id, name: .name, type: .type}'
+          else
+            echo "❌ Failed to access board"
+            echo "HTTP Code: $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "======================="
+          echo "JIRA Integration Test Summary"
+          echo "======================="
+          echo "JIRA URL: ${{ env.JIRA_BASE_URL }}"
+          echo "Project: ${{ env.JIRA_PROJECT_KEY }}"
+          echo "Board ID: ${{ env.JIRA_BOARD_ID }}"
+          echo "Test Type: ${{ github.event.inputs.test_type }}"
+          echo "Issue Key: ${{ github.event.inputs.issue_key }}"
+          echo ""
+          echo "Next steps:"
+          echo "1. Check the JIRA board at: ${{ env.JIRA_BASE_URL }}/jira/software/projects/${{ env.JIRA_PROJECT_KEY }}/boards/${{ env.JIRA_BOARD_ID }}"
+          echo "2. Verify test results above"
+          echo "3. If all tests pass, the integration is working correctly!"

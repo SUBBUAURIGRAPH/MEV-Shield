@@ -1,0 +1,194 @@
+name: JIRA Smart Transitions
+
+on:
+  pull_request:
+    types: [opened, closed, converted_to_draft, ready_for_review]
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'bugfix/**'
+      - 'hotfix/**'
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+
+jobs:
+  smart-transitions:
+    runs-on: ubuntu-latest
+    name: Smart JIRA Transitions
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract JIRA Issue Key
+        id: extract
+        run: |
+          # Get issue key from branch name or PR title
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            ISSUE_KEY=$(echo "$BRANCH $PR_TITLE" | grep -oE 'MEV-[0-9]+' | head -1)
+          else
+            BRANCH="${{ github.ref_name }}"
+            ISSUE_KEY=$(echo "$BRANCH" | grep -oE 'MEV-[0-9]+' | head -1)
+          fi
+          
+          echo "issue_key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+          echo "Found issue key: $ISSUE_KEY"
+
+      - name: Get Issue Status
+        if: steps.extract.outputs.issue_key != ''
+        id: status
+        run: |
+          STATUS=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}?fields=status" \
+            | jq -r '.fields.status.name')
+          
+          echo "current_status=$STATUS" >> $GITHUB_OUTPUT
+          echo "Current status: $STATUS"
+
+      - name: Transition on Branch Creation
+        if: |
+          github.event_name == 'push' && 
+          contains(github.ref, 'feature/') && 
+          steps.extract.outputs.issue_key != '' &&
+          steps.status.outputs.current_status == 'To Do'
+        run: |
+          # Transition to "In Progress"
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{"transition": {"name": "In Progress"}}' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/transitions"
+          
+          # Add comment
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": \"🚀 Development started on branch: ${{ github.ref_name }}\"}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/comment"
+
+      - name: Transition on PR Open
+        if: |
+          github.event_name == 'pull_request' && 
+          github.event.action == 'opened' && 
+          steps.extract.outputs.issue_key != ''
+        run: |
+          # Transition to "Code Review"
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{"transition": {"name": "Code Review"}}' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/transitions"
+          
+          # Add PR link
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"body\": \"🔍 Pull Request opened: [PR #${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})\\n\\nTitle: ${{ github.event.pull_request.title }}\"
+            }" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/comment"
+
+      - name: Transition on PR Draft
+        if: |
+          github.event_name == 'pull_request' && 
+          github.event.action == 'converted_to_draft' && 
+          steps.extract.outputs.issue_key != ''
+        run: |
+          # Transition back to "In Progress"
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{"transition": {"name": "In Progress"}}' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/transitions"
+          
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": \"🔙 PR converted to draft - back in development\"}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/comment"
+
+      - name: Transition on PR Ready
+        if: |
+          github.event_name == 'pull_request' && 
+          github.event.action == 'ready_for_review' && 
+          steps.extract.outputs.issue_key != ''
+        run: |
+          # Transition to "Code Review"
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{"transition": {"name": "Code Review"}}' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/transitions"
+          
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": \"✅ PR is ready for review\"}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/comment"
+
+      - name: Transition on PR Merge
+        if: |
+          github.event_name == 'pull_request' && 
+          github.event.action == 'closed' && 
+          github.event.pull_request.merged && 
+          steps.extract.outputs.issue_key != ''
+        run: |
+          # Determine target transition based on branch
+          if [[ "${{ github.event.pull_request.base.ref }}" == "main" ]]; then
+            TRANSITION="Done"
+            MESSAGE="✅ PR merged to main - Issue completed!"
+          else
+            TRANSITION="Testing"
+            MESSAGE="🧪 PR merged to ${{ github.event.pull_request.base.ref }} - Ready for testing"
+          fi
+          
+          # Transition issue
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\": {\"name\": \"$TRANSITION\"}}" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/transitions"
+          
+          # Add comment with merge details
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"body\": \"$MESSAGE\\n\\nPR #${{ github.event.pull_request.number }} merged by ${{ github.actor }}\\nCommits: ${{ github.event.pull_request.commits }}\\nFiles changed: ${{ github.event.pull_request.changed_files }}\"
+            }" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}/comment"
+
+      - name: Update Issue Labels
+        if: steps.extract.outputs.issue_key != ''
+        run: |
+          # Add labels based on branch/event
+          LABELS=()
+          
+          if [[ "${{ github.ref_name }}" == *"feature/"* ]]; then
+            LABELS+=("feature")
+          elif [[ "${{ github.ref_name }}" == *"bugfix/"* ]]; then
+            LABELS+=("bugfix")
+          elif [[ "${{ github.ref_name }}" == *"hotfix/"* ]]; then
+            LABELS+=("hotfix")
+          fi
+          
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            LABELS+=("has-pr")
+          fi
+          
+          if [ ${#LABELS[@]} -gt 0 ]; then
+            LABEL_JSON=$(printf '"%s",' "${LABELS[@]}" | sed 's/,$//')
+            curl -X PUT \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{\"update\": {\"labels\": [{\"add\": [$LABEL_JSON]}]}}" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.extract.outputs.issue_key }}"
+          fi

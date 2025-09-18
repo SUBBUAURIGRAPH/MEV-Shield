@@ -1,0 +1,188 @@
+name: JIRA Integration
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    types: [opened, closed, reopened, synchronize]
+  issues:
+    types: [opened, closed, reopened]
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+
+jobs:
+  update-jira:
+    runs-on: ubuntu-latest
+    name: Update JIRA Tickets
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract JIRA issue key from commit/PR
+        id: extract
+        run: |
+          # Extract JIRA issue key from commit message or PR title
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TITLE="${{ github.event.pull_request.title }}"
+            BODY="${{ github.event.pull_request.body }}"
+            MESSAGE="$TITLE $BODY"
+          else
+            MESSAGE="${{ github.event.head_commit.message }}"
+          fi
+          
+          # Look for JIRA issue key pattern (MEV-XXX)
+          ISSUE_KEY=$(echo "$MESSAGE" | grep -oE 'MEV-[0-9]+' | head -1)
+          echo "issue_key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+          echo "Found JIRA issue key: $ISSUE_KEY"
+
+      - name: Login to JIRA
+        if: steps.extract.outputs.issue_key != ''
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ env.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Find issue details
+        if: steps.extract.outputs.issue_key != ''
+        id: find
+        uses: atlassian/gajira-find-issue-key@v3
+        with:
+          string: ${{ steps.extract.outputs.issue_key }}
+
+      - name: Comment on JIRA issue for commits
+        if: github.event_name == 'push' && steps.extract.outputs.issue_key != ''
+        uses: atlassian/gajira-comment@v3
+        with:
+          issue: ${{ steps.extract.outputs.issue_key }}
+          comment: |
+            🚀 Code Update from GitHub
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            
+            Commit Message:
+            ${{ github.event.head_commit.message }}
+            
+            [View Commit](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+
+      - name: Comment on JIRA issue for PRs
+        if: github.event_name == 'pull_request' && steps.extract.outputs.issue_key != ''
+        uses: atlassian/gajira-comment@v3
+        with:
+          issue: ${{ steps.extract.outputs.issue_key }}
+          comment: |
+            🔄 Pull Request Update
+            
+            PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
+            Status: ${{ github.event.action }}
+            Author: ${{ github.event.pull_request.user.login }}
+            
+            [View Pull Request](${{ github.event.pull_request.html_url }})
+
+      - name: Transition issue on PR merge
+        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged && steps.extract.outputs.issue_key != ''
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.extract.outputs.issue_key }}
+          transition: "Done"
+
+      - name: Create JIRA issue from GitHub issue
+        if: github.event_name == 'issues' && github.event.action == 'opened'
+        id: create
+        uses: atlassian/gajira-create@v3
+        with:
+          project: MEV
+          issuetype: Task
+          summary: "[GitHub Issue #${{ github.event.issue.number }}] ${{ github.event.issue.title }}"
+          description: |
+            Issue created from GitHub:
+            
+            ${{ github.event.issue.body }}
+            
+            GitHub Issue: ${{ github.event.issue.html_url }}
+            Created by: ${{ github.event.issue.user.login }}
+          fields: '{"labels": ["github-issue", "mev-shield"]}'
+
+      - name: Add created issue key as label
+        if: github.event_name == 'issues' && github.event.action == 'opened' && steps.create.outputs.issue != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['${{ steps.create.outputs.issue }}']
+            })
+
+  sync-commits-to-jira:
+    runs-on: ubuntu-latest
+    name: Sync Commits to JIRA
+    if: github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get commit messages
+        id: commits
+        run: |
+          # Get all commits in this push
+          COMMITS=$(git log --format="%H %s" ${{ github.event.before }}..${{ github.sha }})
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Process each commit
+        run: |
+          while IFS= read -r commit; do
+            HASH=$(echo $commit | cut -d' ' -f1)
+            MESSAGE=$(echo $commit | cut -d' ' -f2-)
+            ISSUE_KEY=$(echo "$MESSAGE" | grep -oE 'MEV-[0-9]+' | head -1)
+            
+            if [ ! -z "$ISSUE_KEY" ]; then
+              echo "Found issue $ISSUE_KEY in commit $HASH"
+              # Update JIRA with commit info
+              curl -X POST \
+                -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+                -H "Content-Type: application/json" \
+                -d "{\"body\": \"Commit [$HASH](https://github.com/${{ github.repository }}/commit/$HASH): $MESSAGE\"}" \
+                "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$ISSUE_KEY/comment"
+            fi
+          done <<< "${{ steps.commits.outputs.commits }}"
+
+  update-jira-board:
+    runs-on: ubuntu-latest
+    name: Update JIRA Board Status
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Update JIRA Board
+        run: |
+          # Get all issue keys from recent commits
+          ISSUE_KEYS=$(git log --format="%s %b" -10 | grep -oE 'MEV-[0-9]+' | sort -u)
+          
+          for ISSUE_KEY in $ISSUE_KEYS; do
+            echo "Updating $ISSUE_KEY on board ${{ env.JIRA_BOARD_ID }}"
+            
+            # Add deployment label
+            curl -X PUT \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d '{"update": {"labels": [{"add": "deployed-to-main"}]}}' \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$ISSUE_KEY"
+          done

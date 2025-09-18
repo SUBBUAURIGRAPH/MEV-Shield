@@ -1,0 +1,258 @@
+name: Advanced JIRA Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'sync'
+        type: choice
+        options:
+          - sync
+          - create-sprint
+          - update-sprint
+          - generate-report
+  schedule:
+    # Run daily sync at 2 AM UTC
+    - cron: '0 2 * * *'
+  pull_request:
+    types: [ready_for_review, converted_to_draft]
+  release:
+    types: [published, prereleased]
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+
+jobs:
+  create-sprint-issues:
+    runs-on: ubuntu-latest
+    name: Create Sprint Issues
+    if: github.event.inputs.action == 'create-sprint' || github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install JIRA CLI
+        run: npm install -g jira-cli
+
+      - name: Create Sprint Planning Issues
+        run: |
+          # Create epic for MEV Shield features
+          EPIC_KEY=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "fields": {
+                "project": {"key": "MEV"},
+                "summary": "MEV Shield Sprint - ${{ github.run_number }}",
+                "issuetype": {"name": "Epic"},
+                "description": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{
+                      "type": "text",
+                      "text": "Sprint planning for MEV Shield implementation"
+                    }]
+                  }]
+                }
+              }
+            }' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue" | jq -r '.key')
+          
+          echo "Created Epic: $EPIC_KEY"
+          
+          # Create stories under the epic
+          STORIES=(
+            "Implement threshold encryption for transactions"
+            "Add VDF-based ordering system"
+            "Create reputation system for validators"
+            "Build monitoring dashboard"
+            "Implement fair redistribution mechanism"
+            "Add neural network predictor"
+            "Create admin interface"
+            "Build user transaction interface"
+          )
+          
+          for STORY in "${STORIES[@]}"; do
+            curl -X POST \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"fields\": {
+                  \"project\": {\"key\": \"MEV\"},
+                  \"summary\": \"$STORY\",
+                  \"issuetype\": {\"name\": \"Story\"},
+                  \"parent\": {\"key\": \"$EPIC_KEY\"},
+                  \"labels\": [\"mev-shield\", \"auto-created\"]
+                }
+              }" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue"
+          done
+
+  sync-github-to-jira:
+    runs-on: ubuntu-latest
+    name: Sync GitHub to JIRA
+    if: github.event_name == 'schedule' || github.event.inputs.action == 'sync'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync Issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            
+            for (const issue of issues.data) {
+              // Check if issue has JIRA key label
+              const jiraLabel = issue.labels.find(l => l.name.match(/MEV-\d+/));
+              
+              if (!jiraLabel) {
+                // Create JIRA issue
+                console.log(`Creating JIRA issue for GitHub issue #${issue.number}`);
+                // API call would go here
+              } else {
+                // Update existing JIRA issue
+                console.log(`Updating JIRA issue ${jiraLabel.name}`);
+              }
+            }
+
+      - name: Sync Pull Requests
+        run: |
+          # Get all open PRs
+          PR_DATA=$(gh pr list --json number,title,state,author,labels --limit 100)
+          
+          echo "$PR_DATA" | jq -c '.[]' | while IFS= read -r pr; do
+            PR_NUMBER=$(echo "$pr" | jq -r '.number')
+            PR_TITLE=$(echo "$pr" | jq -r '.title')
+            
+            # Check if PR title contains JIRA key
+            ISSUE_KEY=$(echo "$PR_TITLE" | grep -oE 'MEV-[0-9]+' | head -1)
+            
+            if [ ! -z "$ISSUE_KEY" ]; then
+              # Update JIRA with PR status
+              curl -X POST \
+                -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+                -H "Content-Type: application/json" \
+                -d "{\"body\": \"Pull Request #$PR_NUMBER is open: $PR_TITLE\"}" \
+                "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$ISSUE_KEY/comment"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  update-jira-on-release:
+    runs-on: ubuntu-latest
+    name: Update JIRA on Release
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get release notes
+        id: release
+        run: |
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "name=${{ github.event.release.name }}" >> $GITHUB_OUTPUT
+
+      - name: Extract JIRA issues from release
+        id: extract-issues
+        run: |
+          # Get commits between this release and previous
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --format="%s %b")
+          else
+            COMMITS=$(git log --format="%s %b" $PREV_TAG..${{ github.event.release.tag_name }})
+          fi
+          
+          ISSUE_KEYS=$(echo "$COMMITS" | grep -oE 'MEV-[0-9]+' | sort -u)
+          echo "issues=$ISSUE_KEYS" >> $GITHUB_OUTPUT
+
+      - name: Create JIRA Release Version
+        run: |
+          # Create version in JIRA
+          VERSION_ID=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "${{ steps.release.outputs.tag }}",
+              "project": "MEV",
+              "released": true,
+              "releaseDate": "'$(date -u +%Y-%m-%d)'"
+            }' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/version" | jq -r '.id')
+          
+          # Update all related issues with fix version
+          for ISSUE_KEY in ${{ steps.extract-issues.outputs.issues }}; do
+            curl -X PUT \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{\"update\": {\"fixVersions\": [{\"add\": {\"id\": \"$VERSION_ID\"}}]}}" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$ISSUE_KEY"
+            
+            # Transition to Done if not already
+            curl -X POST \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d '{"transition": {"id": "31"}}' \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$ISSUE_KEY/transitions"
+          done
+
+  generate-jira-report:
+    runs-on: ubuntu-latest
+    name: Generate JIRA Report
+    if: github.event.inputs.action == 'generate-report'
+    
+    steps:
+      - name: Generate Sprint Report
+        run: |
+          # Get current sprint
+          SPRINT_DATA=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/agile/1.0/board/${{ env.JIRA_BOARD_ID }}/sprint?state=active" | jq -r '.values[0]')
+          
+          SPRINT_ID=$(echo "$SPRINT_DATA" | jq -r '.id')
+          SPRINT_NAME=$(echo "$SPRINT_DATA" | jq -r '.name')
+          
+          # Get sprint issues
+          ISSUES=$(curl -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/agile/1.0/sprint/$SPRINT_ID/issue")
+          
+          # Create report
+          echo "# Sprint Report: $SPRINT_NAME" > sprint-report.md
+          echo "" >> sprint-report.md
+          echo "## Statistics" >> sprint-report.md
+          echo "- Total Issues: $(echo "$ISSUES" | jq '.total')" >> sprint-report.md
+          echo "- Completed: $(echo "$ISSUES" | jq '[.issues[] | select(.fields.status.name == "Done")] | length')" >> sprint-report.md
+          echo "- In Progress: $(echo "$ISSUES" | jq '[.issues[] | select(.fields.status.name == "In Progress")] | length')" >> sprint-report.md
+          echo "- To Do: $(echo "$ISSUES" | jq '[.issues[] | select(.fields.status.name == "To Do")] | length')" >> sprint-report.md
+          
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint-report
+          path: sprint-report.md
