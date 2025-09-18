@@ -50,6 +50,10 @@ argon2 = "0.5"
 axum-extra = { version = "0.9", features = ["cookie"] }
 regex = "1.10"
 axum-test = "15.0"
+url = "2.5"
+
+# Additional Phase 2 Security Dependencies
+# (Most dependencies are already included above)
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }

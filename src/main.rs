@@ -12,6 +12,9 @@ mod block_builder;
 mod monitoring;
 mod types;
 mod traits;
+mod validation;
+mod middleware;
+mod api_gateway;
 
 use std::sync::Arc;
 use anyhow::Result;
