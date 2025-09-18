@@ -119,8 +119,6 @@ impl DetectionService {
         Ok(tx.gas_price > num_bigint::BigUint::from(100_000_000_000u64))
     }
 }
-    pattern_analyzer: PatternAnalyzer,
-}
 
 /// Arbitrage detector
 pub struct ArbitrageDetector {

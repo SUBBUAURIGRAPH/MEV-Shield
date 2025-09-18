@@ -80,7 +80,6 @@ impl RedistributionService {
         Ok(())
     }
 }
-}
 
 #[derive(Clone, Debug)]
 pub struct UserContribution {
