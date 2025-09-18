@@ -1,25 +1,26 @@
-// encryption/src/lib.rs
 //! Encrypted Mempool Service for MEV Shield
 //! 
 //! Provides threshold-encrypted transaction storage and management using BLS threshold encryption.
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use mev_shield_core::{
-    config::EncryptionConfig,
-    error::{EncryptionError, MEVShieldError},
-    traits::{DecryptionShare, EncryptionService},
-    types::*,
-};
 use ring::rand::SystemRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+use anyhow::Result;
+
+use crate::{
+    config::EncryptionConfig,
+    error::{EncryptionError, MEVShieldError},
+    traits::{DecryptionShare, EncryptionServiceTrait},
+    types::*,
+};
 
 /// Encrypted mempool service implementation
-pub struct EncryptedMempoolService {
+pub struct EncryptionService {
     config: EncryptionConfig,
     encrypted_transactions: Arc<RwLock<HashMap<TxHash, EncryptedTransaction>>>,
     threshold_scheme: ThresholdCrypto,
@@ -39,6 +40,57 @@ pub struct ThresholdCrypto {
 /// Public key for threshold encryption
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicKey(pub [u8; 32]);
+
+impl EncryptionService {
+    /// Create a new encryption service
+    pub async fn new(config: EncryptionConfig) -> Result<Self> {
+        let threshold_scheme = ThresholdCrypto {
+            threshold: config.threshold,
+            total_shares: config.total_validators,
+            master_key: [0u8; 32], // In production, generate properly
+        };
+        
+        Ok(Self {
+            config,
+            encrypted_transactions: Arc::new(RwLock::new(HashMap::new())),
+            threshold_scheme,
+            validator_keys: Vec::new(),
+            decryption_shares: Arc::new(RwLock::new(HashMap::new())),
+            random: SystemRandom::new(),
+        })
+    }
+    
+    pub async fn encrypt_transaction(&self, tx: Transaction) -> Result<EncryptedTransaction> {
+        // Simplified encryption - in production use proper threshold crypto
+        let encrypted_data = tx.serialize()?;
+        
+        Ok(EncryptedTransaction {
+            id: tx.hash(),
+            encrypted_data,
+            submission_time: Utc::now(),
+            time_lock: None,
+            priority: Priority::Medium,
+            gas_price: tx.gas_price,
+            chain_id: tx.chain_id,
+        })
+    }
+    
+    pub async fn decrypt_transaction(&self, encrypted_tx: EncryptedTransaction) -> Result<Transaction> {
+        // Simplified decryption - in production use proper threshold crypto
+        todo!("Implement threshold decryption")
+    }
+    
+    pub async fn get_ready_transactions(&self, block_height: u64) -> Result<Vec<EncryptedTransaction>> {
+        let transactions = self.encrypted_transactions.read().await;
+        Ok(transactions.values().cloned().collect())
+    }
+    
+    pub async fn start_cleanup_service(&self) -> Result<()> {
+        // Periodic cleanup of old encrypted transactions
+        info!("Starting encryption cleanup service");
+        Ok(())
+    }
+}
 
 /// Private key share for threshold decryption
 #[derive(Debug, Clone, Serialize, Deserialize)]

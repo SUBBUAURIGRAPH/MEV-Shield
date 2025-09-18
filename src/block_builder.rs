@@ -1,3 +1,7 @@
+//! Block Builder Coordinator for MEV Shield
+//!
+//! Manages decentralized block building with reputation system
+
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -5,30 +9,25 @@ use tokio::time::{Duration, interval};
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use tracing::{info, error, warn};
-use ethers::types::{Address, U256, H256};
+use serde::{Deserialize, Serialize};
 
-use crate::types::{Transaction, Block, TxHash};
-use crate::error::MEVShieldError;
+use crate::{
+    types::*,
+    config::BlockBuilderConfig,
+    error::MEVShieldError,
+};
 
 /// Decentralized Block Builder Coordinator
-pub struct BlockBuilderCoordinator {
+pub struct BlockBuilder {
     config: BlockBuilderConfig,
     builders: Arc<RwLock<HashMap<Address, BlockBuilder>>>,
     reputation_system: ReputationSystem,
     proposal_aggregator: ProposalAggregator,
 }
 
-#[derive(Clone, Debug)]
-pub struct BlockBuilderConfig {
-    pub min_builders: usize,
-    pub rotation_interval: Duration,
-    pub proposal_timeout: Duration,
-    pub reputation_threshold: f64,
-    pub slashing_amount: U256,
-}
 
 #[derive(Clone, Debug)]
-pub struct BlockBuilder {
+pub struct BuilderInfo {
     pub address: Address,
     pub reputation_score: f64,
     pub blocks_built: u64,
@@ -36,6 +35,31 @@ pub struct BlockBuilder {
     pub last_active: chrono::DateTime<chrono::Utc>,
     pub stake: U256,
     pub is_active: bool,
+}
+
+pub struct ReputationSystem {
+    // Simplified for now
+}
+
+pub struct ProposalAggregator {
+    // Simplified for now
+}
+
+impl BlockBuilder {
+    /// Create a new block builder coordinator
+    pub async fn new(config: BlockBuilderConfig) -> Result<Self> {
+        Ok(Self {
+            config,
+            builders: Arc::new(RwLock::new(HashMap::new())),
+            reputation_system: ReputationSystem {},
+            proposal_aggregator: ProposalAggregator {},
+        })
+    }
+    
+    pub async fn start_coordinator(&self) -> Result<()> {
+        info!("Starting block builder coordinator");
+        Ok(())
+    }
 }
 
 /// Reputation System for block builders

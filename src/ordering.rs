@@ -1,16 +1,9 @@
-// ordering/src/lib.rs
 //! Fair Ordering Service for MEV Shield
 //! 
 //! Implements verifiable delay functions (VDF) for deterministic transaction ordering
 //! that cannot be manipulated by block builders or validators.
 
 use async_trait::async_trait;
-use mev_shield_core::{
-    config::OrderingConfig,
-    error::{MEVShieldError, OrderingError},
-    traits::{OrderingProof, OrderingService},
-    types::*,
-};
 use num_bigint::BigUint;
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
@@ -18,9 +11,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    config::OrderingConfig,
+    error::{MEVShieldError, OrderingError},
+    traits::{OrderingProof, OrderingServiceTrait},
+    types::*,
+};
 
 /// Fair ordering service implementation using VDF
-pub struct FairOrderingService {
+pub struct OrderingService {
     config: OrderingConfig,
     vdf_params: VDFParameters,
     ordering_cache: Arc<RwLock<HashMap<OrderingKey, VDFOutput>>>,
@@ -35,6 +37,76 @@ pub struct VDFParameters {
     pub security_param: u32,
     pub modulus: BigUint,
     pub batch_size: u32,
+}
+
+/// Key for ordering cache
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct OrderingKey(pub [u8; 32]);
+
+/// VDF output
+#[derive(Debug, Clone)]
+pub struct VDFOutput {
+    pub value: BigUint,
+    pub proof: Vec<u8>,
+}
+
+/// Batch processor
+pub struct BatchProcessor {
+    // Simplified for now
+}
+
+/// Performance monitor
+pub struct PerformanceMonitor {
+    // Simplified for now
+}
+
+impl OrderingService {
+    /// Create a new ordering service
+    pub async fn new(config: OrderingConfig) -> Result<Self> {
+        let vdf_params = VDFParameters {
+            difficulty: config.vdf_difficulty,
+            security_param: config.vdf_security_param,
+            modulus: BigUint::from(2u32).pow(256) - BigUint::from(189u32),
+            batch_size: config.batch_size,
+        };
+        
+        Ok(Self {
+            config,
+            vdf_params,
+            ordering_cache: Arc::new(RwLock::new(HashMap::new())),
+            batch_processor: BatchProcessor {},
+            performance_monitor: PerformanceMonitor {},
+        })
+    }
+    
+    pub async fn create_ordering_commitment(&self, tx: &EncryptedTransaction) -> Result<OrderingCommitment> {
+        let mut hasher = Keccak256::new();
+        hasher.update(&tx.encrypted_data);
+        let hash = hasher.finalize();
+        
+        let mut commitment_hash = [0u8; 32];
+        commitment_hash.copy_from_slice(&hash);
+        
+        Ok(OrderingCommitment {
+            transaction_hash: tx.hash(),
+            submission_time: tx.submission_time,
+            priority_data: Vec::new(),
+            commitment_hash: Hash(commitment_hash),
+            priority: 1,
+        })
+    }
+    
+    pub async fn order_transactions(&self, txs: Vec<Transaction>) -> Result<Vec<Transaction>> {
+        // Simple ordering by gas price for now
+        let mut ordered = txs;
+        ordered.sort_by(|a, b| b.gas_price.cmp(&a.gas_price));
+        Ok(ordered)
+    }
+    
+    pub async fn start_batch_processor(&self) -> Result<()> {
+        info!("Starting ordering batch processor");
+        Ok(())
+    }
 }
 
 /// Key for ordering cache

@@ -1,3 +1,7 @@
+//! Monitoring and Metrics for MEV Shield
+//!
+//! Provides comprehensive monitoring and metrics collection
+
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -6,10 +10,11 @@ use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use tracing::{info, error, warn};
 use prometheus::{Registry, Counter, Gauge, Histogram, HistogramOpts, Encoder, TextEncoder};
-use ethers::types::{Address, U256};
 
-use crate::types::{Transaction, Block};
-use crate::error::MEVShieldError;
+use crate::{
+    types::*,
+    error::MEVShieldError,
+};
 
 /// Metrics Collector for monitoring system performance
 pub struct MetricsCollector {
@@ -38,6 +43,84 @@ pub struct MetricsCollector {
     
     // Alert system
     alert_system: AlertSystem,
+}
+
+pub struct AlertSystem {
+    // Simplified for now
+}
+
+impl MetricsCollector {
+    /// Create a new metrics collector
+    pub fn new() -> Result<Self> {
+        let registry = Registry::new();
+        
+        let transactions_processed = Counter::new("transactions_processed", "Total transactions processed")?;
+        let transactions_protected = Counter::new("transactions_protected", "Total transactions protected")?;
+        let transactions_failed = Counter::new("transactions_failed", "Total transactions failed")?;
+        
+        let mev_detected = Counter::new("mev_detected", "Total MEV detected")?;
+        let mev_prevented = Counter::new("mev_prevented", "Total MEV prevented")?;
+        let mev_value_captured = Counter::new("mev_value_captured", "Total MEV value captured")?;
+        let mev_value_distributed = Counter::new("mev_value_distributed", "Total MEV value distributed")?;
+        
+        let encryption_latency = Histogram::with_opts(
+            HistogramOpts::new("encryption_latency", "Encryption latency in ms")
+        )?;
+        let ordering_latency = Histogram::with_opts(
+            HistogramOpts::new("ordering_latency", "Ordering latency in ms")
+        )?;
+        let detection_latency = Histogram::with_opts(
+            HistogramOpts::new("detection_latency", "Detection latency in ms")
+        )?;
+        
+        let active_builders = Gauge::new("active_builders", "Number of active builders")?;
+        let mempool_size = Gauge::new("mempool_size", "Size of mempool")?;
+        let pending_distributions = Gauge::new("pending_distributions", "Pending distributions")?;
+        
+        // Register all metrics
+        registry.register(Box::new(transactions_processed.clone()))?;
+        registry.register(Box::new(transactions_protected.clone()))?;
+        registry.register(Box::new(transactions_failed.clone()))?;
+        registry.register(Box::new(mev_detected.clone()))?;
+        registry.register(Box::new(mev_prevented.clone()))?;
+        registry.register(Box::new(mev_value_captured.clone()))?;
+        registry.register(Box::new(mev_value_distributed.clone()))?;
+        registry.register(Box::new(encryption_latency.clone()))?;
+        registry.register(Box::new(ordering_latency.clone()))?;
+        registry.register(Box::new(detection_latency.clone()))?;
+        registry.register(Box::new(active_builders.clone()))?;
+        registry.register(Box::new(mempool_size.clone()))?;
+        registry.register(Box::new(pending_distributions.clone()))?;
+        
+        Ok(Self {
+            registry,
+            transactions_processed,
+            transactions_protected,
+            transactions_failed,
+            mev_detected,
+            mev_prevented,
+            mev_value_captured,
+            mev_value_distributed,
+            encryption_latency,
+            ordering_latency,
+            detection_latency,
+            active_builders,
+            mempool_size,
+            pending_distributions,
+            alert_system: AlertSystem {},
+        })
+    }
+    
+    pub async fn get_current_metrics(&self) -> Result<HashMap<String, f64>> {
+        let mut metrics = HashMap::new();
+        // Add current metric values
+        Ok(metrics)
+    }
+    
+    pub async fn start_exporter(&self) -> Result<()> {
+        info!("Starting metrics exporter");
+        Ok(())
+    }
 }
 
 /// Alert System for security monitoring

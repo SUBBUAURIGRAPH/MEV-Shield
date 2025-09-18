@@ -1,3 +1,7 @@
+//! MEV Redistribution Service for MEV Shield
+//!
+//! Handles the redistribution of captured MEV value back to users
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -7,13 +11,16 @@ use anyhow::{Result, anyhow};
 use tracing::{info, error, warn};
 use chrono::{DateTime, Utc};
 use num_bigint::BigUint;
-use ethers::types::{Address, U256, H256};
+use serde::{Deserialize, Serialize};
 
-use crate::types::{Transaction, Block, TxHash};
-use crate::error::MEVShieldError;
+use crate::{
+    types::*,
+    config::RedistributionConfig,
+    error::MEVShieldError,
+};
 
 /// MEV Redistribution Service
-pub struct MEVRedistributionService {
+pub struct RedistributionService {
     config: RedistributionConfig,
     mev_pool: Arc<RwLock<MEVPool>>,
     user_contributions: Arc<RwLock<HashMap<Address, UserContribution>>>,
@@ -21,14 +28,6 @@ pub struct MEVRedistributionService {
     payment_processor: PaymentProcessor,
 }
 
-#[derive(Clone, Debug)]
-pub struct RedistributionConfig {
-    pub redistribution_percentage: f64,
-    pub distribution_frequency: Duration,
-    pub minimum_distribution: U256,
-    pub gas_reserve_percentage: f64,
-    pub validator_share: f64,
-}
 
 #[derive(Clone, Debug)]
 pub struct MEVPool {
@@ -38,6 +37,49 @@ pub struct MEVPool {
     pub reserved_for_gas: U256,
     pub last_distribution: DateTime<Utc>,
     pub epoch: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct UserContribution {
+    pub address: Address,
+    pub total_volume: U256,
+    pub pending_rewards: U256,
+}
+
+pub struct DistributionEngine {
+    // Simplified for now
+}
+
+pub struct PaymentProcessor {
+    // Simplified for now
+}
+
+impl RedistributionService {
+    /// Create a new redistribution service
+    pub async fn new(config: RedistributionConfig) -> Result<Self> {
+        let mev_pool = MEVPool {
+            total_captured: U256::zero(),
+            available_for_distribution: U256::zero(),
+            distributed_this_epoch: U256::zero(),
+            reserved_for_gas: U256::zero(),
+            last_distribution: Utc::now(),
+            epoch: 0,
+        };
+        
+        Ok(Self {
+            config,
+            mev_pool: Arc::new(RwLock::new(mev_pool)),
+            user_contributions: Arc::new(RwLock::new(HashMap::new())),
+            distribution_engine: DistributionEngine {},
+            payment_processor: PaymentProcessor {},
+        })
+    }
+    
+    pub async fn start_distribution_service(&self) -> Result<()> {
+        info!("Starting MEV redistribution service");
+        Ok(())
+    }
+}
 }
 
 #[derive(Clone, Debug)]

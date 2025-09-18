@@ -1,8 +1,7 @@
-// core/src/error.rs
 //! Error types for MEV Shield
 
 use thiserror::Error;
-use crate::types::{DetectionResult, MEVAlert};
+use crate::detection::{DetectionResult, BatchAnalysisResult};
 
 /// Main error type for MEV Shield operations
 #[derive(Error, Debug)]
@@ -21,7 +20,7 @@ pub enum MEVShieldError {
     
     /// MEV detected in transaction batch
     #[error("MEV detected in transaction batch")]
-    BatchMEVDetected(DetectionResult),
+    BatchMEVDetected(BatchAnalysisResult),
     
     /// Encryption/decryption errors
     #[error("Encryption error: {0}")]
