@@ -1,0 +1,284 @@
+name: GitHub-JIRA Bidirectional Sync
+
+on:
+  issues:
+    types: [opened, closed, reopened, edited, labeled]
+  issue_comment:
+    types: [created]
+  schedule:
+    # Run every hour for bidirectional sync
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+
+jobs:
+  sync-issue-to-jira:
+    runs-on: ubuntu-latest
+    name: Sync GitHub Issue to JIRA
+    if: github.event_name == 'issues'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for JIRA reference
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+            const jiraKey = labels.find(l => l.match(/^MEV-\d+$/));
+            
+            // Check if issue should be synced
+            const shouldSync = !labels.includes('no-jira-sync');
+            
+            core.setOutput('jira_key', jiraKey || '');
+            core.setOutput('should_sync', shouldSync);
+            core.setOutput('issue_number', issue.number);
+            core.setOutput('issue_title', issue.title);
+            core.setOutput('issue_body', issue.body || '');
+            core.setOutput('issue_state', issue.state);
+
+      - name: Create JIRA Issue
+        if: steps.check.outputs.should_sync == 'true' && steps.check.outputs.jira_key == '' && github.event.action == 'opened'
+        id: create
+        run: |
+          # Map GitHub labels to JIRA labels
+          LABELS='["github-issue"'
+          for label in ${{ join(github.event.issue.labels.*.name, ' ') }}; do
+            if [[ "$label" != "no-jira-sync" ]]; then
+              LABELS+=", \"$label\""
+            fi
+          done
+          LABELS+=']'
+          
+          # Determine issue type based on labels
+          ISSUE_TYPE="Task"
+          if [[ "${{ github.event.issue.title }}" == *"[BUG]"* ]] || [[ "${{ github.event.issue.title }}" == *"bug"* ]]; then
+            ISSUE_TYPE="Bug"
+          elif [[ "${{ github.event.issue.title }}" == *"[FEATURE]"* ]] || [[ "${{ github.event.issue.title }}" == *"feature"* ]]; then
+            ISSUE_TYPE="Story"
+          fi
+          
+          # Create JIRA issue
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"fields\": {
+                \"project\": {\"key\": \"MEV\"},
+                \"summary\": \"[GH-${{ steps.check.outputs.issue_number }}] ${{ steps.check.outputs.issue_title }}\",
+                \"description\": {
+                  \"type\": \"doc\",
+                  \"version\": 1,
+                  \"content\": [{
+                    \"type\": \"paragraph\",
+                    \"content\": [{
+                      \"type\": \"text\",
+                      \"text\": \"${{ steps.check.outputs.issue_body }}\"
+                    }]
+                  }, {
+                    \"type\": \"paragraph\",
+                    \"content\": [{
+                      \"type\": \"text\",
+                      \"text\": \"GitHub Issue: \"
+                    }, {
+                      \"type\": \"text\",
+                      \"text\": \"#${{ steps.check.outputs.issue_number }}\",
+                      \"marks\": [{
+                        \"type\": \"link\",
+                        \"attrs\": {
+                          \"href\": \"${{ github.event.issue.html_url }}\"
+                        }
+                      }]
+                    }]
+                  }]
+                },
+                \"issuetype\": {\"name\": \"$ISSUE_TYPE\"},
+                \"labels\": $LABELS
+              }
+            }" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue")
+          
+          JIRA_KEY=$(echo "$RESPONSE" | jq -r '.key // empty')
+          
+          if [ ! -z "$JIRA_KEY" ] && [ "$JIRA_KEY" != "null" ]; then
+            echo "✅ Created JIRA issue: $JIRA_KEY"
+            echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to create JIRA issue"
+            echo "$RESPONSE"
+          fi
+
+      - name: Add JIRA Key Label
+        if: steps.create.outputs.jira_key != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.check.outputs.issue_number }},
+              labels: ['${{ steps.create.outputs.jira_key }}']
+            });
+
+      - name: Update JIRA Issue
+        if: steps.check.outputs.jira_key != '' && github.event.action == 'edited'
+        run: |
+          # Update JIRA issue with new title/description
+          curl -s -X PUT \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"fields\": {
+                \"summary\": \"[GH-${{ steps.check.outputs.issue_number }}] ${{ steps.check.outputs.issue_title }}\"
+              }
+            }" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.check.outputs.jira_key }}"
+
+      - name: Transition JIRA Issue
+        if: steps.check.outputs.jira_key != '' && (github.event.action == 'closed' || github.event.action == 'reopened')
+        run: |
+          if [ "${{ github.event.action }}" = "closed" ]; then
+            TRANSITION="Done"
+          else
+            TRANSITION="To Do"
+          fi
+          
+          # Get available transitions
+          TRANSITIONS=$(curl -s -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.check.outputs.jira_key }}/transitions")
+          
+          # Find transition ID
+          TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r ".transitions[] | select(.name==\"$TRANSITION\") | .id")
+          
+          if [ ! -z "$TRANSITION_ID" ]; then
+            curl -s -X POST \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.check.outputs.jira_key }}/transitions"
+            
+            echo "✅ Transitioned ${{ steps.check.outputs.jira_key }} to $TRANSITION"
+          fi
+
+  sync-jira-to-github:
+    runs-on: ubuntu-latest
+    name: Sync JIRA to GitHub
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get JIRA Issues
+        id: jira-issues
+        run: |
+          # Get all MEV project issues updated in last 2 hours
+          ISSUES=$(curl -s -X GET \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=project=MEV%20AND%20updated>=-2h&fields=key,summary,status,labels,description")
+          
+          echo "$ISSUES" | jq -c '.issues[]' > jira_issues.json
+
+      - name: Sync to GitHub
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read JIRA issues
+            const jiraIssues = fs.readFileSync('jira_issues.json', 'utf8')
+              .split('\n')
+              .filter(line => line)
+              .map(line => JSON.parse(line));
+            
+            // Get all GitHub issues
+            const githubIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all'
+            });
+            
+            for (const jiraIssue of jiraIssues) {
+              const jiraKey = jiraIssue.key;
+              const jiraSummary = jiraIssue.fields.summary;
+              const jiraStatus = jiraIssue.fields.status.name;
+              
+              // Find corresponding GitHub issue
+              const ghIssue = githubIssues.find(issue => 
+                issue.labels.some(label => label.name === jiraKey)
+              );
+              
+              if (ghIssue) {
+                // Update existing GitHub issue
+                const shouldClose = jiraStatus === 'Done' && ghIssue.state === 'open';
+                const shouldOpen = jiraStatus !== 'Done' && ghIssue.state === 'closed';
+                
+                if (shouldClose) {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: ghIssue.number,
+                    state: 'closed'
+                  });
+                  console.log(`Closed GitHub issue #${ghIssue.number} (${jiraKey})`);
+                } else if (shouldOpen) {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: ghIssue.number,
+                    state: 'open'
+                  });
+                  console.log(`Reopened GitHub issue #${ghIssue.number} (${jiraKey})`);
+                }
+              } else if (!jiraSummary.includes('[GH-')) {
+                // Create new GitHub issue for JIRA issues not from GitHub
+                const newIssue = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `[${jiraKey}] ${jiraSummary}`,
+                  body: `This issue is synchronized from JIRA.\n\nJIRA: [${jiraKey}](https://aurigraphdlt.atlassian.net/browse/${jiraKey})\nStatus: ${jiraStatus}`,
+                  labels: [jiraKey, 'from-jira']
+                });
+                console.log(`Created GitHub issue #${newIssue.data.number} for ${jiraKey}`);
+              }
+            }
+
+  sync-comments:
+    runs-on: ubuntu-latest
+    name: Sync Comments
+    if: github.event_name == 'issue_comment' && github.event.action == 'created'
+    
+    steps:
+      - name: Get JIRA Key
+        id: get-key
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+            const jiraKey = labels.find(l => l.match(/^MEV-\d+$/));
+            
+            core.setOutput('jira_key', jiraKey || '');
+            core.setOutput('comment_body', context.payload.comment.body);
+            core.setOutput('comment_user', context.payload.comment.user.login);
+
+      - name: Add Comment to JIRA
+        if: steps.get-key.outputs.jira_key != ''
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"body\": \"💬 Comment from GitHub by @${{ steps.get-key.outputs.comment_user }}:\\n\\n${{ steps.get-key.outputs.comment_body }}\"
+            }" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/${{ steps.get-key.outputs.jira_key }}/comment"
+          
+          echo "✅ Synced comment to ${{ steps.get-key.outputs.jira_key }}"

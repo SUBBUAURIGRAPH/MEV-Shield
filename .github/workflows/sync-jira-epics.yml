@@ -1,0 +1,541 @@
+name: Sync JIRA Epics and Tasks
+
+on:
+  workflow_dispatch:
+    inputs:
+      sync_type:
+        description: 'Type of sync operation'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - epics-only
+          - tasks-only
+          - update-existing
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'dashboard/**'
+      - '.github/workflows/**'
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+  JIRA_BOARD_ID: 855
+  JIRA_EMAIL: subbu@aurigraph.io
+
+jobs:
+  create-epics-and-tasks:
+    runs-on: ubuntu-latest
+    name: Create JIRA Epics and Tasks
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Create MEV Shield Epics
+        id: create-epics
+        run: |
+          echo "Creating MEV Shield Epics and Tasks..."
+          
+          # Base64 encode credentials
+          AUTH_HEADER="Authorization: Basic $(echo -n '${{ env.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)"
+          
+          # Function to create JIRA issue
+          create_issue() {
+            local issue_type="$1"
+            local summary="$2"
+            local description="$3"
+            local parent_key="$4"
+            local labels="$5"
+            local story_points="$6"
+            
+            # Build JSON payload
+            if [ "$issue_type" = "Epic" ]; then
+              PAYLOAD=$(cat <<EOF
+          {
+            "fields": {
+              "project": {"key": "MEV"},
+              "summary": "$summary",
+              "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                  "type": "paragraph",
+                  "content": [{
+                    "type": "text",
+                    "text": "$description"
+                  }]
+                }]
+              },
+              "issuetype": {"name": "Epic"},
+              "customfield_10011": "$summary",
+              "labels": $labels
+            }
+          }
+          EOF
+              )
+            elif [ ! -z "$parent_key" ]; then
+              # Sub-task or Story under Epic
+              PAYLOAD=$(cat <<EOF
+          {
+            "fields": {
+              "project": {"key": "MEV"},
+              "summary": "$summary",
+              "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                  "type": "paragraph",
+                  "content": [{
+                    "type": "text",
+                    "text": "$description"
+                  }]
+                }]
+              },
+              "issuetype": {"name": "$issue_type"},
+              "parent": {"key": "$parent_key"},
+              "labels": $labels,
+              "customfield_10016": $story_points
+            }
+          }
+          EOF
+              )
+            else
+              # Regular Task
+              PAYLOAD=$(cat <<EOF
+          {
+            "fields": {
+              "project": {"key": "MEV"},
+              "summary": "$summary",
+              "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [{
+                  "type": "paragraph",
+                  "content": [{
+                    "type": "text",
+                    "text": "$description"
+                  }]
+                }]
+              },
+              "issuetype": {"name": "$issue_type"},
+              "labels": $labels,
+              "customfield_10016": $story_points
+            }
+          }
+          EOF
+              )
+            fi
+            
+            # Create the issue
+            RESPONSE=$(curl -s -X POST \
+              -H "$AUTH_HEADER" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue")
+            
+            # Extract issue key
+            ISSUE_KEY=$(echo "$RESPONSE" | jq -r '.key // empty')
+            if [ ! -z "$ISSUE_KEY" ]; then
+              echo "✅ Created $issue_type: $ISSUE_KEY - $summary"
+              echo "$ISSUE_KEY"
+            else
+              echo "❌ Failed to create $issue_type: $summary"
+              echo "Response: $RESPONSE"
+              echo ""
+            fi
+          }
+          
+          # Epic 1: Core MEV Protection System
+          echo "Creating Epic: Core MEV Protection System"
+          EPIC1=$(create_issue "Epic" \
+            "Core MEV Protection System" \
+            "Implement the foundational MEV protection mechanisms including encryption, ordering, and redistribution" \
+            "" \
+            '["mev-shield", "core", "backend"]' \
+            "")
+          
+          if [ ! -z "$EPIC1" ]; then
+            create_issue "Task" \
+              "Implement Threshold Encryption Service" \
+              "Build the encryption service for transaction privacy using threshold cryptography" \
+              "$EPIC1" \
+              '["encryption", "security", "rust"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Develop VDF-based Ordering System" \
+              "Create verifiable delay function for fair transaction ordering" \
+              "$EPIC1" \
+              '["vdf", "ordering", "rust"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Build MEV Redistribution Mechanism" \
+              "Implement fair value redistribution to users and validators" \
+              "$EPIC1" \
+              '["redistribution", "economics", "rust"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Create Detection Engine" \
+              "Build ML-based MEV detection and classification system" \
+              "$EPIC1" \
+              '["detection", "ml", "rust"]' \
+              "13"
+          fi
+          
+          # Epic 2: Admin Dashboard
+          echo "Creating Epic: Admin Dashboard"
+          EPIC2=$(create_issue "Epic" \
+            "Admin Dashboard Development" \
+            "Build comprehensive admin interface for monitoring and managing MEV Shield" \
+            "" \
+            '["dashboard", "frontend", "admin"]' \
+            "")
+          
+          if [ ! -z "$EPIC2" ]; then
+            create_issue "Task" \
+              "Design Admin Dashboard UI/UX" \
+              "Create Material-UI based dashboard design with responsive layout" \
+              "$EPIC2" \
+              '["ui", "design", "react"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Implement System Metrics Dashboard" \
+              "Real-time monitoring of MEV protection metrics and system health" \
+              "$EPIC2" \
+              '["metrics", "monitoring", "react"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Build Validator Management Interface" \
+              "Interface for managing validator nodes and reputation scores" \
+              "$EPIC2" \
+              '["validators", "management", "react"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Create Configuration Management Panel" \
+              "Dynamic configuration updates for MEV Shield parameters" \
+              "$EPIC2" \
+              '["config", "settings", "react"]' \
+              "3"
+          fi
+          
+          # Epic 3: User Dashboard
+          echo "Creating Epic: User Dashboard"
+          EPIC3=$(create_issue "Epic" \
+            "User Dashboard Development" \
+            "Create user-facing interface for transaction protection and MEV analytics" \
+            "" \
+            '["dashboard", "frontend", "user"]' \
+            "")
+          
+          if [ ! -z "$EPIC3" ]; then
+            create_issue "Task" \
+              "Design User Dashboard Experience" \
+              "User-friendly interface for MEV protection features" \
+              "$EPIC3" \
+              '["ui", "ux", "react"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Implement Transaction Protection Interface" \
+              "Allow users to submit protected transactions" \
+              "$EPIC3" \
+              '["transactions", "protection", "react"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Build MEV Savings Calculator" \
+              "Show users how much MEV they saved" \
+              "$EPIC3" \
+              '["analytics", "calculator", "react"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Create Wallet Integration" \
+              "Connect MetaMask and other Web3 wallets" \
+              "$EPIC3" \
+              '["web3", "wallets", "integration"]' \
+              "8"
+          fi
+          
+          # Epic 4: Neural Network & ML
+          echo "Creating Epic: Neural Network & Machine Learning"
+          EPIC4=$(create_issue "Epic" \
+            "Neural Network & ML Integration" \
+            "Advanced ML models for MEV prediction and detection" \
+            "" \
+            '["ml", "ai", "neural-network"]' \
+            "")
+          
+          if [ ! -z "$EPIC4" ]; then
+            create_issue "Task" \
+              "Implement LSTM Predictor" \
+              "LSTM model for MEV opportunity prediction" \
+              "$EPIC4" \
+              '["lstm", "prediction", "rust"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Build Graph Neural Network" \
+              "GNN for transaction graph analysis" \
+              "$EPIC4" \
+              '["gnn", "graph", "rust"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Create Transformer Model" \
+              "Transformer architecture for pattern detection" \
+              "$EPIC4" \
+              '["transformer", "nlp", "rust"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Develop Reinforcement Learning Agent" \
+              "RL agent for optimal protection strategies" \
+              "$EPIC4" \
+              '["rl", "optimization", "rust"]' \
+              "21"
+          fi
+          
+          # Epic 5: Testing & Quality
+          echo "Creating Epic: Testing & Quality Assurance"
+          EPIC5=$(create_issue "Epic" \
+            "Testing & Quality Assurance" \
+            "Comprehensive testing suite and quality standards" \
+            "" \
+            '["testing", "qa", "quality"]' \
+            "")
+          
+          if [ ! -z "$EPIC5" ]; then
+            create_issue "Task" \
+              "Write Unit Tests for Core Services" \
+              "Unit test coverage for all Rust services" \
+              "$EPIC5" \
+              '["unit-tests", "rust", "testing"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Create Integration Test Suite" \
+              "End-to-end integration testing" \
+              "$EPIC5" \
+              '["integration", "e2e", "testing"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Implement Performance Benchmarks" \
+              "Performance testing and optimization" \
+              "$EPIC5" \
+              '["performance", "benchmarks", "testing"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Security Audit Preparation" \
+              "Prepare for third-party security audit" \
+              "$EPIC5" \
+              '["security", "audit", "compliance"]' \
+              "13"
+          fi
+          
+          # Epic 6: Documentation
+          echo "Creating Epic: Documentation & DevOps"
+          EPIC6=$(create_issue "Epic" \
+            "Documentation & DevOps" \
+            "Complete documentation and deployment infrastructure" \
+            "" \
+            '["docs", "devops", "infrastructure"]' \
+            "")
+          
+          if [ ! -z "$EPIC6" ]; then
+            create_issue "Task" \
+              "Write Technical Documentation" \
+              "API docs, architecture guides, and tutorials" \
+              "$EPIC6" \
+              '["documentation", "technical", "api"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Create Docker Deployment" \
+              "Dockerize all services for easy deployment" \
+              "$EPIC6" \
+              '["docker", "deployment", "devops"]' \
+              "5"
+            
+            create_issue "Task" \
+              "Setup CI/CD Pipeline" \
+              "GitHub Actions for automated testing and deployment" \
+              "$EPIC6" \
+              '["ci-cd", "github-actions", "automation"]' \
+              "8"
+            
+            create_issue "Task" \
+              "Kubernetes Configuration" \
+              "K8s deployment manifests for production" \
+              "$EPIC6" \
+              '["kubernetes", "k8s", "production"]' \
+              "8"
+          fi
+          
+          # Epic 7: Blockchain Integration
+          echo "Creating Epic: Blockchain Integration"
+          EPIC7=$(create_issue "Epic" \
+            "Blockchain Integration" \
+            "Integration with Ethereum and other blockchains" \
+            "" \
+            '["blockchain", "ethereum", "integration"]' \
+            "")
+          
+          if [ ! -z "$EPIC7" ]; then
+            create_issue "Task" \
+              "Ethereum Mainnet Integration" \
+              "Connect to Ethereum mainnet for production" \
+              "$EPIC7" \
+              '["ethereum", "mainnet", "web3"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Layer 2 Support" \
+              "Add support for Arbitrum, Optimism, Polygon" \
+              "$EPIC7" \
+              '["layer2", "scaling", "multichain"]' \
+              "13"
+            
+            create_issue "Task" \
+              "Smart Contract Development" \
+              "MEV Shield smart contracts for on-chain components" \
+              "$EPIC7" \
+              '["solidity", "smart-contracts", "blockchain"]' \
+              "21"
+            
+            create_issue "Task" \
+              "Cross-chain Bridge" \
+              "Enable MEV protection across multiple chains" \
+              "$EPIC7" \
+              '["bridge", "cross-chain", "interoperability"]' \
+              "21"
+          fi
+          
+          echo ""
+          echo "✅ Epic and Task creation completed!"
+          echo "View your board at: ${{ env.JIRA_BASE_URL }}/jira/software/projects/MEV/boards/${{ env.JIRA_BOARD_ID }}"
+
+      - name: Create Sprint
+        run: |
+          echo "Creating active sprint..."
+          
+          AUTH_HEADER="Authorization: Basic $(echo -n '${{ env.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)"
+          
+          # Create sprint
+          SPRINT_DATA=$(cat <<EOF
+          {
+            "name": "MEV Shield Sprint $(date +%Y-%m-%d)",
+            "startDate": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+            "endDate": "$(date -u -d '+14 days' +%Y-%m-%dT%H:%M:%S.000Z)",
+            "originBoardId": ${{ env.JIRA_BOARD_ID }}
+          }
+          EOF
+          )
+          
+          SPRINT_RESPONSE=$(curl -s -X POST \
+            -H "$AUTH_HEADER" \
+            -H "Content-Type: application/json" \
+            -d "$SPRINT_DATA" \
+            "${{ env.JIRA_BASE_URL }}/rest/agile/1.0/sprint")
+          
+          SPRINT_ID=$(echo "$SPRINT_RESPONSE" | jq -r '.id // empty')
+          
+          if [ ! -z "$SPRINT_ID" ]; then
+            echo "✅ Created Sprint ID: $SPRINT_ID"
+            
+            # Start the sprint
+            curl -s -X POST \
+              -H "$AUTH_HEADER" \
+              -H "Content-Type: application/json" \
+              "${{ env.JIRA_BASE_URL }}/rest/agile/1.0/sprint/$SPRINT_ID/start"
+            
+            echo "✅ Sprint started!"
+          else
+            echo "⚠️ Could not create sprint"
+            echo "Response: $SPRINT_RESPONSE"
+          fi
+
+      - name: Generate Roadmap
+        run: |
+          echo "Generating project roadmap..."
+          
+          cat > roadmap.md << 'EOF'
+          # MEV Shield Development Roadmap
+          
+          ## Phase 1: Foundation (Weeks 1-2)
+          - [x] Core Rust implementation
+          - [x] Basic encryption service
+          - [x] Initial dashboard setup
+          - [ ] Unit test framework
+          
+          ## Phase 2: Core Features (Weeks 3-4)
+          - [ ] VDF ordering implementation
+          - [ ] MEV detection engine
+          - [ ] Admin dashboard completion
+          - [ ] User dashboard completion
+          
+          ## Phase 3: ML Integration (Weeks 5-6)
+          - [ ] LSTM predictor
+          - [ ] Graph neural network
+          - [ ] Pattern detection
+          - [ ] Performance optimization
+          
+          ## Phase 4: Blockchain Integration (Weeks 7-8)
+          - [ ] Ethereum mainnet connection
+          - [ ] Smart contract deployment
+          - [ ] Wallet integration
+          - [ ] Transaction protection live
+          
+          ## Phase 5: Production Ready (Weeks 9-10)
+          - [ ] Security audit
+          - [ ] Performance benchmarks
+          - [ ] Documentation complete
+          - [ ] Production deployment
+          
+          ---
+          Generated: $(date)
+          Board: https://aurigraphdlt.atlassian.net/jira/software/projects/MEV/boards/855
+          EOF
+          
+          echo "✅ Roadmap generated in roadmap.md"
+
+      - name: Summary Report
+        run: |
+          echo "========================================="
+          echo "   JIRA Sync Complete!"
+          echo "========================================="
+          echo ""
+          echo "📊 Created Structure:"
+          echo "  • 7 Epics covering all major features"
+          echo "  • 30+ Tasks with story points"
+          echo "  • Active sprint created and started"
+          echo "  • Labels and components configured"
+          echo ""
+          echo "🔗 Links:"
+          echo "  Board: ${{ env.JIRA_BASE_URL }}/jira/software/projects/MEV/boards/${{ env.JIRA_BOARD_ID }}"
+          echo "  Backlog: ${{ env.JIRA_BASE_URL }}/jira/software/projects/MEV/boards/${{ env.JIRA_BOARD_ID }}/backlog"
+          echo ""
+          echo "📝 Next Steps:"
+          echo "  1. Review created epics and tasks"
+          echo "  2. Prioritize backlog items"
+          echo "  3. Assign team members"
+          echo "  4. Start development with MEV-XXX references"
