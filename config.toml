@@ -1,0 +1,90 @@
+# MEV Shield Configuration File
+# Version: 1.0.0
+
+[api]
+# API server settings
+port = 8080
+bind_address = "0.0.0.0"
+max_connections = 1000
+request_timeout = 30  # seconds
+enable_cors = true
+allowed_origins = ["*"]
+enable_auth = false
+api_keys = []
+
+[encryption]
+# Threshold encryption settings
+threshold = 67  # Percentage of validators required for decryption
+total_validators = 100
+max_pool_size = 10000
+cleanup_interval = 60  # seconds
+encryption_timeout = 30  # seconds
+
+[ordering]
+# Fair ordering settings
+vdf_difficulty = 1000000  # VDF iterations
+security_param = 128
+batch_size = 100
+batch_timeout = 5  # seconds
+
+[detection]
+# MEV detection settings
+sandwich_detection_enabled = true
+frontrun_detection_enabled = true
+arbitrage_detection_enabled = true
+window_size = 300  # seconds
+max_history_size = 10000
+confidence_threshold = 0.8
+
+[redistribution]
+# MEV redistribution settings
+redistribution_percentage = 80.0
+distribution_frequency = 3600  # seconds (1 hour)
+minimum_distribution = "1000000000000000"  # 0.001 ETH in wei
+gas_reserve_percentage = 10.0
+validator_share = 10.0
+
+[block_builder]
+# Block builder settings
+min_builders = 5
+rotation_interval = 300  # seconds (5 minutes)
+proposal_timeout = 10  # seconds
+reputation_threshold = 30.0
+slashing_amount = "1000000000000000000"  # 1 ETH in wei
+
+[database]
+# Database settings
+postgres_url = "postgresql://mevshield:password@localhost/mevshield"
+max_connections = 20
+connection_timeout = 10  # seconds
+
+[cache]
+# Cache settings
+redis_url = "redis://localhost:6379"
+cache_ttl = 300  # seconds
+max_cache_size = 10000
+enable = true
+ttl_seconds = 300
+
+[blockchain]
+# Blockchain connection settings
+ethereum_rpc = "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+polygon_rpc = "https://polygon-rpc.com"
+solana_rpc = "https://api.mainnet-beta.solana.com"
+chain_id = 1  # Ethereum mainnet
+confirmation_blocks = 12
+
+[monitoring]
+# Monitoring settings
+metrics_enabled = true
+metrics_port = 9090
+alert_webhook = "https://your-webhook-url.com/alerts"
+log_level = "info"  # debug, info, warn, error
+
+[security]
+# Security settings
+rate_limit_enabled = true
+rate_limit_requests = 100
+rate_limit_window = 60  # seconds
+authentication_enabled = false
+api_key_header = "X-API-Key"

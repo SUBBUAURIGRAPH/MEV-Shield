@@ -1,0 +1,87 @@
+[package]
+name = "mev-shield"
+version = "1.0.0"
+edition = "2021"
+authors = ["Aurigraph DLT <dev@aurigraph.io>"]
+description = "Comprehensive MEV protection framework for blockchain networks"
+license = "Apache-2.0"
+repository = "https://github.com/aurigraph/mev-shield"
+
+[dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Cryptography
+threshold-crypto = "0.5"
+bls12_381 = "0.8"
+sha3 = "0.10"
+blake3 = "1.5"
+num-bigint = "0.4"
+rand = "0.8"
+ring = "0.17"
+
+# Blockchain
+ethers = "2.0"
+web3 = "0.19"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Networking
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "compression"] }
+hyper = "1.1"
+reqwest = { version = "0.11", features = ["json"] }
+tonic = "0.10"
+prost = "0.12"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+clap = { version = "4.4", features = ["derive"] }
+config = "0.13"
+dotenv = "0.15"
+prometheus = "0.13"
+opentelemetry = "0.21"
+opentelemetry-otlp = "0.14"
+toml = "0.8"
+hex = "0.4"
+serde_with = { version = "3.4", features = ["chrono"] }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+mockito = "1.2"
+testcontainers = "0.15"
+tokio-test = "0.4"
+
+[[bin]]
+name = "mev-shield"
+path = "src/main.rs"
+
+[[bin]]
+name = "mev-shield-cli"
+path = "src/bin/cli.rs"
+
+[[bench]]
+name = "benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+
+[profile.dev]
+opt-level = 0
+debug = true
