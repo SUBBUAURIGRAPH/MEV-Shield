@@ -519,7 +519,7 @@ const AdminDashboard: React.FC = () => {
                           </Box>
                         </Box>
                         <Divider sx={{ my: 2 }} />
-                        {service === 'api' && (
+                        {service === 'api' && 'latency' in health && (
                           <>
                             <Typography variant="body2" color="textSecondary">
                               Latency: {health.latency}ms
@@ -529,7 +529,7 @@ const AdminDashboard: React.FC = () => {
                             </Typography>
                           </>
                         )}
-                        {service === 'database' && (
+                        {service === 'database' && 'connections' in health && (
                           <>
                             <Typography variant="body2" color="textSecondary">
                               Connections: {health.connections}/100
@@ -540,7 +540,7 @@ const AdminDashboard: React.FC = () => {
                             </Typography>
                           </>
                         )}
-                        {service === 'redis' && (
+                        {service === 'redis' && 'memory' in health && (
                           <>
                             <Typography variant="body2" color="textSecondary">
                               Memory Usage: {health.memory}%
@@ -551,7 +551,7 @@ const AdminDashboard: React.FC = () => {
                             </Typography>
                           </>
                         )}
-                        {service === 'blockchain' && (
+                        {service === 'blockchain' && 'blockHeight' in health && (
                           <>
                             <Typography variant="body2" color="textSecondary">
                               Block Height: {health.blockHeight.toLocaleString()}

@@ -1,0 +1,20 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Set environment for user dashboard
+ENV REACT_APP_DASHBOARD_TYPE=user
+ENV PORT=3002
+
+# Expose port
+EXPOSE 3002
+
+# Start the user dashboard
+CMD ["npm", "run", "start:user"]
