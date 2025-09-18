@@ -1,6 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { AuthProvider } from './auth/AuthContext';
+import { ProtectedRoute, AdminRoute, UserRoute } from './auth/ProtectedRoute';
+import LoginPage from './auth/LoginPage';
 import AdminDashboard from './dashboards/AdminDashboard';
 import UserDashboard from './dashboards/UserDashboard';
 
@@ -87,13 +90,55 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
-        <Routes>
-          <Route path="/" element={<Navigate to={isAdmin ? "/admin" : "/user"} replace />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/user" element={<UserDashboard />} />
-        </Routes>
-      </Router>
+      <AuthProvider>
+        <Router>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={<LoginPage />} />
+            
+            {/* Protected routes */}
+            <Route 
+              path="/" 
+              element={
+                <Navigate to={isAdmin ? "/admin" : "/dashboard"} replace />
+              } 
+            />
+            
+            {/* Admin dashboard - requires admin role */}
+            <Route 
+              path="/admin" 
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              } 
+            />
+            
+            {/* User dashboard - requires user role or higher */}
+            <Route 
+              path="/dashboard" 
+              element={
+                <UserRoute>
+                  {isAdmin ? <AdminDashboard /> : <UserDashboard />}
+                </UserRoute>
+              } 
+            />
+            
+            {/* Legacy user route */}
+            <Route 
+              path="/user" 
+              element={
+                <UserRoute>
+                  <UserDashboard />
+                </UserRoute>
+              } 
+            />
+            
+            {/* Catch all - redirect to login */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Router>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

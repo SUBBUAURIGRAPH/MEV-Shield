@@ -44,10 +44,130 @@ pub struct Config {
 }
 
 impl Config {
+    /// Load configuration from file
     pub fn from_file(path: &str) -> Result<Self> {
+        // Load environment variables first
+        dotenv::dotenv().ok(); // Don't fail if .env file doesn't exist
+        
         let config_str = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&config_str)?;
+        let mut config: Config = toml::from_str(&config_str)?;
+        
+        // Override with environment variables
+        config.load_from_env()?;
+        
         Ok(config)
+    }
+
+    /// Load configuration from environment variables
+    pub fn from_env() -> Result<Self> {
+        dotenv::dotenv().ok(); // Load .env file if it exists
+        
+        let mut config = Config::default();
+        config.load_from_env()?;
+        Ok(config)
+    }
+
+    /// Load values from environment variables, overriding defaults
+    fn load_from_env(&mut self) -> Result<()> {
+        use std::env;
+
+        // JWT Configuration
+        if let Ok(secret) = env::var("JWT_SECRET") {
+            self.api.auth.jwt_secret = Some(secret);
+        }
+
+        // Database Configuration  
+        if let Ok(url) = env::var("DATABASE_URL") {
+            self.database.url = url;
+        }
+        if let Ok(max_conn) = env::var("DATABASE_MAX_CONNECTIONS") {
+            self.database.max_connections = max_conn.parse().unwrap_or(self.database.max_connections);
+        }
+
+        // Redis Configuration
+        if let Ok(redis_url) = env::var("REDIS_URL") {
+            self.cache.redis_url = redis_url;
+        }
+
+        // API Configuration
+        if let Ok(host) = env::var("API_HOST") {
+            self.api.bind_address = host;
+        }
+        if let Ok(port) = env::var("API_PORT") {
+            self.api.port = port.parse().unwrap_or(self.api.port);
+        }
+        if let Ok(cors) = env::var("API_CORS_ENABLED") {
+            self.api.cors_enabled = cors.parse().unwrap_or(self.api.cors_enabled);
+        }
+
+        // Security Configuration
+        if let Ok(admin_endpoints) = env::var("API_ADMIN_ENDPOINTS") {
+            self.api.auth.admin_endpoints = admin_endpoints.parse().unwrap_or(self.api.auth.admin_endpoints);
+        }
+
+        // Encryption Configuration
+        if let Ok(threshold) = env::var("THRESHOLD_K") {
+            self.encryption.threshold = threshold.parse().unwrap_or(self.encryption.threshold);
+        }
+        if let Ok(total) = env::var("THRESHOLD_N") {
+            self.encryption.total_validators = total.parse().unwrap_or(self.encryption.total_validators);
+        }
+
+        // Blockchain Configuration
+        if let Ok(eth_rpc) = env::var("ETHEREUM_RPC_URL") {
+            if let Some(network) = self.blockchain.networks.get_mut(&1) {
+                network.rpc_url = eth_rpc;
+            }
+        }
+
+        // Monitoring Configuration
+        if let Ok(log_level) = env::var("LOG_LEVEL") {
+            self.monitoring.log_level = log_level;
+        }
+        if let Ok(metrics_enabled) = env::var("METRICS_ENABLED") {
+            self.monitoring.metrics_enabled = metrics_enabled.parse().unwrap_or(self.monitoring.metrics_enabled);
+        }
+
+        Ok(())
+    }
+
+    /// Validate configuration for security and consistency
+    pub fn validate(&self) -> Result<()> {
+        // Ensure JWT secret is set for authentication
+        if self.api.auth.jwt_secret.is_none() || 
+           self.api.auth.jwt_secret.as_ref().unwrap().len() < 32 {
+            return Err(anyhow::anyhow!(
+                "JWT_SECRET must be set and at least 32 characters long"
+            ));
+        }
+
+        // Validate database URL format
+        if !self.database.url.starts_with("postgresql://") && 
+           !self.database.url.starts_with("postgres://") {
+            return Err(anyhow::anyhow!(
+                "DATABASE_URL must be a valid PostgreSQL connection string"
+            ));
+        }
+
+        // Validate encryption parameters
+        if self.encryption.threshold > self.encryption.total_validators {
+            return Err(anyhow::anyhow!(
+                "Encryption threshold cannot exceed total validators"
+            ));
+        }
+
+        // Validate redistribution percentages
+        let total_percentage = self.redistribution.redistribution_percentage +
+                              self.redistribution.gas_reserve_percentage +
+                              self.redistribution.validator_share;
+        
+        if total_percentage > 100.0 {
+            return Err(anyhow::anyhow!(
+                "Total redistribution percentages exceed 100%: {}", total_percentage
+            ));
+        }
+
+        Ok(())
     }
 }
 

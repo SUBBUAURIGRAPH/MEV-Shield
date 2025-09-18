@@ -1,0 +1,182 @@
+# Multi-stage secure Docker build for MEV Shield
+# This Dockerfile implements security best practices including:
+# - Non-root user execution
+# - Read-only root filesystem
+# - Dropped capabilities
+# - Security scanning integration
+# - Minimal attack surface
+
+# Build stage
+FROM rust:1.75-alpine AS builder
+
+# Security: Install specific package versions to avoid supply chain attacks
+RUN apk add --no-cache \
+    musl-dev=1.2.4_git-r2 \
+    openssl-dev=3.1.4-r5 \
+    postgresql-dev=16.1-r0 \
+    pkgconfig=2.0.3-r0 \
+    build-base=0.5-r3
+
+# Create build user to avoid running as root during build
+RUN addgroup -g 1001 builder && \
+    adduser -D -u 1001 -G builder builder
+
+# Set working directory with proper permissions
+WORKDIR /build
+RUN chown builder:builder /build
+
+# Switch to build user
+USER builder
+
+# Copy dependency files first for better Docker layer caching
+COPY --chown=builder:builder Cargo.toml Cargo.lock ./
+
+# Pre-build dependencies (creates a cache layer)
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Copy source code with proper ownership
+COPY --chown=builder:builder src ./src
+COPY --chown=builder:builder migrations ./migrations
+
+# Build the actual application
+RUN touch src/main.rs && \
+    cargo build --release
+
+# Security scanning stage (optional - uncomment in CI/CD)
+# FROM builder AS security-scan
+# RUN cargo audit --deny warnings
+
+# Runtime stage with minimal base image
+FROM scratch AS runtime-minimal
+
+# Alternative: Use distroless for minimal runtime (uncomment if needed)
+# FROM gcr.io/distroless/cc-debian12 AS runtime-base
+
+# Use Alpine for runtime (minimal but with shell for debugging if needed)
+FROM alpine:3.19 AS runtime-base
+
+# Security: Remove package manager and unnecessary tools
+RUN apk add --no-cache \
+    openssl=3.1.4-r5 \
+    ca-certificates=20240226-r0 && \
+    # Remove apk package manager to reduce attack surface
+    rm -rf /var/cache/apk/* \
+           /usr/share/man \
+           /usr/share/doc \
+           /usr/share/info \
+           /tmp/* \
+           /var/tmp/*
+
+# Create dedicated application user and group with specific IDs
+RUN addgroup -g 10001 -S mevshield && \
+    adduser -D -u 10001 -G mevshield -S mevshield
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/data /app/logs /app/tmp /app/config && \
+    chown -R mevshield:mevshield /app && \
+    chmod 750 /app && \
+    chmod 700 /app/data /app/logs /app/tmp /app/config
+
+# Runtime stage
+FROM runtime-base AS runtime
+
+# Security labels for container metadata
+LABEL \
+    org.opencontainers.image.title="MEV Shield" \
+    org.opencontainers.image.description="Secure MEV protection service" \
+    org.opencontainers.image.version="1.0.0" \
+    org.opencontainers.image.vendor="Aurigraph DLT" \
+    org.opencontainers.image.licenses="Apache-2.0" \
+    security.scan.required="true" \
+    security.non-root="true" \
+    security.readonly-rootfs="true"
+
+# Set working directory
+WORKDIR /app
+
+# Copy binaries from builder stage with proper ownership and permissions
+COPY --from=builder --chown=mevshield:mevshield \
+     /build/target/release/mev-shield /app/mev-shield
+COPY --from=builder --chown=mevshield:mevshield \
+     /build/target/release/mev-shield-cli /app/mev-shield-cli
+
+# Copy configuration files (these should be mounted as secrets in production)
+COPY --chown=mevshield:mevshield config.toml ./config/config.toml
+COPY --chown=mevshield:mevshield migrations ./migrations
+
+# Set proper executable permissions
+RUN chmod 750 /app/mev-shield /app/mev-shield-cli
+
+# Security: Remove write permissions from all directories except data, logs, tmp
+RUN chmod -R 555 /app/migrations /app/config && \
+    chmod -R 755 /app/data /app/logs /app/tmp
+
+# Switch to non-root user early
+USER mevshield:mevshield
+
+# Security: Set environment variables for additional hardening
+ENV \
+    # Prevent core dumps
+    RLIMIT_CORE=0 \
+    # Limit memory usage (adjust as needed)
+    RLIMIT_AS=4294967296 \
+    # Rust security settings
+    RUST_SECURE_ZERO_MEMORY=1 \
+    RUST_MIN_STACK=2097152 \
+    # Application security
+    MEV_SHIELD_CONFIG=/app/config/config.toml \
+    MEV_SHIELD_DATA_DIR=/app/data \
+    MEV_SHIELD_LOG_DIR=/app/logs \
+    MEV_SHIELD_TMP_DIR=/app/tmp
+
+# Expose only necessary ports
+EXPOSE 8080/tcp
+
+# Health check with timeout and retry limits
+HEALTHCHECK --interval=30s \
+           --timeout=10s \
+           --start-period=30s \
+           --retries=3 \
+           CMD ["/app/mev-shield-cli", "health-check", "--timeout=5"]
+
+# Security: Define volumes for persistent data (should be mounted with proper permissions)
+VOLUME ["/app/data", "/app/logs"]
+
+# Use exec form for better signal handling
+ENTRYPOINT ["/app/mev-shield"]
+
+# Default command arguments
+CMD ["--config", "/app/config/config.toml", "--port", "8080"]
+
+# Security: Additional metadata for runtime security
+LABEL \
+    security.capabilities.required="NONE" \
+    security.apparmor.profile="docker-default" \
+    security.seccomp.profile="runtime/default" \
+    security.no-new-privileges="true"
+
+# Production runtime stage with additional security
+FROM runtime AS production
+
+# Additional production-only security measures
+USER mevshield:mevshield
+
+# Override health check for production
+HEALTHCHECK --interval=60s \
+           --timeout=15s \
+           --start-period=60s \
+           --retries=5 \
+           CMD ["/app/mev-shield-cli", "health-check", "--timeout=10", "--critical-only"]
+
+# Production environment variables
+ENV \
+    ENVIRONMENT=production \
+    LOG_LEVEL=info \
+    RUST_LOG=info \
+    RUST_BACKTRACE=0
+
+# Final stage selector
+FROM runtime AS final

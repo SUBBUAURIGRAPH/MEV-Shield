@@ -76,12 +76,22 @@ impl ApiServer {
     
     /// Create the router with all endpoints
     fn create_router(&self) -> Router {
+        use crate::auth::routes::{create_auth_router, AuthServiceState};
+        use crate::auth::middleware::{AuthState, auth_middleware as jwt_auth_middleware};
+        use crate::auth::jwt::{JwtService, JwtConfig};
+        
         let cors = CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any);
         
-        Router::new()
+        // Create auth state
+        let jwt_service = JwtService::new(JwtConfig::default());
+        let auth_state = AuthState::new(jwt_service);
+        let auth_service_state = AuthServiceState::new();
+        
+        // Protected routes that require authentication
+        let protected_routes = Router::new()
             // Transaction endpoints
             .route("/api/v1/transactions", post(submit_transaction))
             .route("/api/v1/transactions/:id", get(get_transaction_status))
@@ -92,27 +102,45 @@ impl ApiServer {
             .route("/api/v1/analytics/user/:address", get(get_user_analytics))
             .route("/api/v1/analytics/network/:chain_id", get(get_network_analytics))
             
-            // System endpoints
-            .route("/api/v1/health", get(health_check))
-            .route("/api/v1/status", get(system_status))
+            // Metrics endpoint
             .route("/api/v1/metrics", get(get_metrics))
             
-            // Admin endpoints (if enabled)
+            // Admin endpoints (require admin role)
             .route("/api/v1/admin/config", get(get_config))
             .route("/api/v1/admin/validators", get(get_validators))
             
-            // Apply middleware
+            // Apply JWT authentication middleware to protected routes
+            .layer(middleware::from_fn_with_state(
+                auth_state.clone(),
+                jwt_auth_middleware,
+            ))
+            .with_state(self.app_state.clone());
+        
+        // Public routes (no authentication required)
+        let public_routes = Router::new()
+            // System endpoints
+            .route("/api/v1/health", get(health_check))
+            .route("/api/v1/status", get(system_status))
+            .with_state(self.app_state.clone());
+        
+        // Authentication routes
+        let auth_routes = create_auth_router()
+            .with_state(auth_service_state);
+        
+        // Combine all routes
+        Router::new()
+            .nest("/auth", auth_routes)
+            .merge(protected_routes)
+            .merge(public_routes)
+            
+            // Apply global middleware
             .layer(
                 ServiceBuilder::new()
                     .layer(TraceLayer::new_for_http())
                     .layer(cors)
                     .layer(middleware::from_fn(timeout_middleware))
-                    .layer(middleware::from_fn_with_state(
-                        self.app_state.clone(),
-                        auth_middleware,
-                    )),
+                    .layer(middleware::from_fn(auth_middleware)),
             )
-            .with_state(self.app_state)
     }
 }
 
@@ -547,14 +575,30 @@ async fn get_validators(
 
 // Middleware
 
-/// Authentication middleware
+/// Authentication middleware (replaced with proper JWT auth)
 async fn auth_middleware(
-    State(_state): State<AppState>,
     request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    // For now, allow all requests
-    // In production, this would validate API keys or JWT tokens
+    // Extract the path to determine if authentication is required
+    let path = request.uri().path();
+    
+    // Public endpoints that don't require authentication
+    let public_endpoints = [
+        "/api/v1/health",
+        "/api/v1/status",
+        "/auth/login",
+        "/auth/register",
+        "/auth/reset-password",
+        "/auth/reset-password/confirm"
+    ];
+    
+    if public_endpoints.iter().any(|&endpoint| path.starts_with(endpoint)) {
+        return Ok(next.run(request).await);
+    }
+    
+    // All other endpoints now require proper JWT authentication
+    // This is handled by the auth middleware in the auth module
     Ok(next.run(request).await)
 }
 

@@ -44,6 +44,13 @@ reqwest = { version = "0.11", features = ["json"] }
 tonic = "0.10"
 prost = "0.12"
 
+# Authentication & Security
+jsonwebtoken = "9.1"
+argon2 = "0.5"
+axum-extra = { version = "0.9", features = ["cookie"] }
+regex = "1.10"
+axum-test = "15.0"
+
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
