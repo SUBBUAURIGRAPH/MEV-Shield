@@ -70,6 +70,7 @@ import {
   EmojiEvents,
 } from '@mui/icons-material';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
+import '../chartSetup'; // Import Chart.js setup
 import QRCode from 'qrcode.react';
 
 interface WalletInfo {
@@ -435,7 +436,20 @@ const UserDashboard: React.FC = () => {
                         </Select>
                       </FormControl>
                     </Box>
-                    <Line data={savingsChartData} options={{ responsive: true, maintainAspectRatio: false }} height={300} />
+                    <Line 
+                      data={savingsChartData} 
+                      options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            display: true,
+                            position: 'top' as const,
+                          },
+                        },
+                      }} 
+                      height={300}
+                    />
                   </CardContent>
                 </Card>
               </Grid>
@@ -663,7 +677,20 @@ const UserDashboard: React.FC = () => {
                 <Card>
                   <CardContent>
                     <Typography variant="h6" sx={{ mb: 2 }}>Protection Distribution</Typography>
-                    <Doughnut data={protectionDistribution} options={{ responsive: true, maintainAspectRatio: false }} height={250} />
+                    <Doughnut 
+                      data={protectionDistribution} 
+                      options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            display: true,
+                            position: 'right' as const,
+                          },
+                        },
+                      }} 
+                      height={250}
+                    />
                   </CardContent>
                 </Card>
               </Grid>
@@ -672,7 +699,25 @@ const UserDashboard: React.FC = () => {
                 <Card>
                   <CardContent>
                     <Typography variant="h6" sx={{ mb: 2 }}>Protection Trend</Typography>
-                    <Bar data={protectionTrend} options={{ responsive: true, maintainAspectRatio: false }} height={250} />
+                    <Bar 
+                      data={protectionTrend} 
+                      options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            display: true,
+                            position: 'top' as const,
+                          },
+                        },
+                        scales: {
+                          y: {
+                            beginAtZero: true,
+                          },
+                        },
+                      }} 
+                      height={250}
+                    />
                   </CardContent>
                 </Card>
               </Grid>

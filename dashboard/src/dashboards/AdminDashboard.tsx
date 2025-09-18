@@ -56,6 +56,7 @@ import {
   Storage,
 } from '@mui/icons-material';
 import { Line, Bar, Doughnut, Radar } from 'react-chartjs-2';
+import '../chartSetup'; // Import Chart.js setup
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
