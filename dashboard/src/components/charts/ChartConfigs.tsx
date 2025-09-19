@@ -1,7 +1,5 @@
-import { ChartOptions } from 'chart.js';
-
 // Common chart configuration with better Y-axis scaling
-export const getCommonChartOptions = (title?: string): ChartOptions => ({
+export const getCommonChartOptions = (title?: string): any => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
@@ -100,7 +98,7 @@ export const getCommonChartOptions = (title?: string): ChartOptions => ({
 });
 
 // Line chart specific options
-export const getLineChartOptions = (title?: string): ChartOptions => ({
+export const getLineChartOptions = (title?: string): any => ({
   ...getCommonChartOptions(title),
   plugins: {
     ...getCommonChartOptions(title).plugins,
@@ -130,7 +128,7 @@ export const getLineChartOptions = (title?: string): ChartOptions => ({
 });
 
 // Bar chart specific options
-export const getBarChartOptions = (title?: string): ChartOptions => ({
+export const getBarChartOptions = (title?: string): any => ({
   ...getCommonChartOptions(title),
   scales: {
     ...getCommonChartOptions(title).scales,
@@ -165,7 +163,7 @@ export const getBarChartOptions = (title?: string): ChartOptions => ({
 });
 
 // Doughnut chart options
-export const getDoughnutChartOptions = (title?: string): ChartOptions => ({
+export const getDoughnutChartOptions = (title?: string): any => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
