@@ -1046,35 +1046,8 @@ impl Default for MemoryLimitsConfig {
 }
 
 // Custom serde module for Duration
-mod serde_duration {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::time::Duration;
 
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        duration.as_secs().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let secs = u64::deserialize(deserializer)?;
-        Ok(Duration::from_secs(secs))
-    }
-}
-
-/// Configuration loading utilities
 impl MEVShieldConfig {
-    /// Load configuration from file
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config: MEVShieldConfig = toml::from_str(&content)?;
-        Ok(config)
-    }
-    
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         let mut config = MEVShieldConfig::default();

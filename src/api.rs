@@ -26,7 +26,7 @@ use uuid::Uuid;
 use anyhow::Result;
 
 use crate::{
-    config::ApiConfig,
+    config::{ApiConfig, MEVShieldConfig},
     core::MEVShieldCore,
     types::*,
 };

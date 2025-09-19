@@ -124,10 +124,6 @@ impl MetricsCollector {
 }
 
 /// Alert System for security monitoring
-pub struct AlertSystem {
-    alerts: Arc<RwLock<Vec<SecurityAlert>>>,
-    alert_handlers: Vec<Box<dyn AlertHandler + Send + Sync>>,
-}
 
 #[derive(Clone, Debug)]
 pub struct SecurityAlert {

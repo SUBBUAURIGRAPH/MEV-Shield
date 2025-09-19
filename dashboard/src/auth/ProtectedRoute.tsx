@@ -146,7 +146,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // Show loading screen while checking authentication
   if (isLoading) {
-    return fallback || <LoadingScreen />;
+    return <>{fallback || <LoadingScreen />}</>;
   }
 
   // Show error if authentication failed
@@ -240,27 +240,7 @@ export const ReadOnlyRoute: React.FC<Omit<ProtectedRouteProps, 'requiredRole'>> 
   </ProtectedRoute>
 );
 
-// Hook for checking permissions in components
-export const usePermissions = () => {
-  const { user, isAuthenticated } = useAuth();
-
-  const checkPermission = (requiredRole?: string, adminOnly?: boolean): boolean => {
-    if (!isAuthenticated || !user) {
-      return false;
-    }
-    
-    return hasRequiredAccess(user.role, requiredRole, adminOnly);
-  };
-
-  return {
-    isAuthenticated,
-    user,
-    canAccess: checkPermission,
-    isAdmin: user?.role === 'Admin',
-    isUser: user?.role === 'User' || user?.role === 'Admin',
-    isValidator: user?.role === 'Validator' || user?.role === 'Admin',
-    isReadOnly: !!user, // All authenticated users can read
-  };
-};
+// Hook for checking permissions in components (re-exported from AuthContext)
+export { usePermissions } from './AuthContext';
 
 export default ProtectedRoute;

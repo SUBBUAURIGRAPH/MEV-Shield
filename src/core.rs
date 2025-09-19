@@ -13,7 +13,8 @@ use uuid::Uuid;
 use anyhow::Result;
 
 use crate::{
-    config::{Config, MEVShieldConfig, ProtectionConfig, ProtectionLevel},
+    config::{Config, MEVShieldConfig},
+    types::{ProtectionConfig, ProtectionLevel},
     error::MEVShieldError,
     types::*,
     traits::*,

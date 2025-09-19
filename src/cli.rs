@@ -5,7 +5,7 @@
 //! submitting transactions, checking status, and managing the system.
 
 use clap::{Parser, Subcommand};
-use mev_shield_core::{
+use crate::{
     config::MEVShieldConfig,
     types::*,
 };

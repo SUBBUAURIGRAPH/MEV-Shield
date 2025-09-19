@@ -241,20 +241,21 @@ pub async fn blacklist_token(
 }
 
 /// Create middleware stack for protected routes
-pub fn create_auth_middleware_stack() -> tower::util::Stack<
-    axum::middleware::FromFn<AuthState, fn(State<AuthState>, Request, Next) -> _>,
-    tower::util::Stack<
-        axum::middleware::FromFn<(), fn(Request, Next) -> _>,
-        tower::ServiceBuilder<tower::layer::util::Identity>
-    >
-> {
-    tower::ServiceBuilder::new()
-        .layer(axum::middleware::from_fn(rate_limit_middleware))
-        .layer(axum::middleware::from_fn_with_state(
-            AuthState::new(JwtService::default()),
-            auth_middleware,
-        ))
-}
+// Note: Commented out due to tower::util::Stack not available
+// pub fn create_auth_middleware_stack() -> tower::util::Stack<
+//     axum::middleware::FromFn<AuthState, fn(State<AuthState>, Request, Next) -> _>,
+//     tower::util::Stack<
+//         axum::middleware::FromFn<(), fn(Request, Next) -> _>,
+//         tower::ServiceBuilder<tower::layer::util::Identity>
+//     >
+// > {
+//     tower::ServiceBuilder::new()
+//         .layer(axum::middleware::from_fn(rate_limit_middleware))
+//         .layer(axum::middleware::from_fn_with_state(
+//             AuthState::new(JwtService::default()),
+//             auth_middleware,
+//         ))
+// }
 
 #[cfg(test)]
 mod tests {

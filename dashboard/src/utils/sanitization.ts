@@ -92,17 +92,23 @@ export class InputSanitizer {
     // Add hooks for additional security
     DOMPurify.addHook('beforeSanitizeElements', (node) => {
       // Log suspicious attempts
-      if (node.tagName && ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED'].includes(node.tagName)) {
-        console.warn('Blocked dangerous tag:', node.tagName);
+      if (node.nodeType === 1) { // Element node
+        const element = node as Element;
+        if (element.tagName && ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED'].includes(element.tagName)) {
+          console.warn('Blocked dangerous tag:', element.tagName);
+        }
       }
     });
     
     DOMPurify.addHook('beforeSanitizeAttributes', (node) => {
       // Remove dangerous event handlers
-      for (const attr of node.attributes || []) {
-        if (attr.name.toLowerCase().startsWith('on')) {
-          console.warn('Blocked event handler:', attr.name);
-          node.removeAttribute(attr.name);
+      if (node.nodeType === 1) { // Element node
+        const element = node as Element;
+        for (const attr of element.attributes || []) {
+          if (attr.name.toLowerCase().startsWith('on')) {
+            console.warn('Blocked event handler:', attr.name);
+            element.removeAttribute(attr.name);
+          }
         }
       }
     });
@@ -122,8 +128,6 @@ export class InputSanitizer {
       ALLOWED_TAGS: config.allowedTags,
       ALLOWED_ATTR: Object.keys(config.allowedAttributes),
       KEEP_CONTENT: config.disallowedTagsMode === 'keep',
-      STRIP_IGNORE_TAG: config.stripIgnoreTag,
-      STRIP_IGNORE_TAG_BODY: config.stripIgnoreTagBody,
       USE_PROFILES: { html: true },
       SANITIZE_DOM: true,
       SANITIZE_NAMED_PROPS: true,

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     config::DetectionConfig,
     error::{DetectionError, MEVShieldError},
-    traits::{DetectionServiceTrait, MEVPatternDetector},
+    traits::{DetectionService, MEVPatternDetector},
     types::*,
 };
 

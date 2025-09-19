@@ -343,7 +343,7 @@ pub type MEVResult<T> = Result<T, MEVShieldError>;
 /// Result type for specific service operations
 pub type EncryptionResult<T> = Result<T, EncryptionError>;
 pub type OrderingResult<T> = Result<T, OrderingError>;
-pub type DetectionResult<T> = Result<T, DetectionError>;
+pub type DetectionResultType<T> = Result<T, DetectionError>;
 pub type RedistributionResult<T> = Result<T, RedistributionError>;
 pub type StorageResult<T> = Result<T, StorageError>;
 pub type BlockchainResult<T> = Result<T, BlockchainError>;

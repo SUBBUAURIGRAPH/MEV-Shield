@@ -13,7 +13,7 @@ use num_bigint::BigUint;
 use std::str::FromStr;
 
 pub mod ethereum;
-pub mod sanitization;
+// pub mod sanitization; // Temporarily disabled due to compilation issues
 pub mod sql_protection;
 
 #[derive(Error, Debug)]

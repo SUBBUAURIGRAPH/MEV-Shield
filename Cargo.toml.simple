@@ -2,7 +2,6 @@
 name = "mev-shield-simple"
 version = "1.0.0"
 edition = "2021"
-default-run = "mev-shield-api"
 
 [[bin]]
 name = "mev-shield-api"

@@ -63,10 +63,6 @@ impl BlockBuilder {
 }
 
 /// Reputation System for block builders
-pub struct ReputationSystem {
-    scores: Arc<RwLock<HashMap<Address, ReputationScore>>>,
-}
-
 #[derive(Clone, Debug)]
 pub struct ReputationScore {
     pub builder: Address,
@@ -76,11 +72,6 @@ pub struct ReputationScore {
     pub failed_blocks: u64,
     pub mev_incidents: u64,
     pub last_updated: chrono::DateTime<chrono::Utc>,
-}
-
-/// Proposal Aggregator for block proposals
-pub struct ProposalAggregator {
-    proposals: Arc<RwLock<Vec<BlockProposal>>>,
 }
 
 #[derive(Clone, Debug)]

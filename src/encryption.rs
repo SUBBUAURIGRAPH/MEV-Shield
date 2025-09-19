@@ -15,7 +15,7 @@ use anyhow::Result;
 use crate::{
     config::EncryptionConfig,
     error::{EncryptionError, MEVShieldError},
-    traits::{DecryptionShare, EncryptionServiceTrait},
+    traits::{DecryptionShare, EncryptionService},
     types::*,
 };
 

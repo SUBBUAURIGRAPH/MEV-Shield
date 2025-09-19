@@ -1,11 +1,11 @@
+import { useState, useCallback } from 'react';
+import { useAuth } from './AuthContext';
+
 // Re-export the useAuth hook from AuthContext for convenience
 export { useAuth, usePermissions } from './AuthContext';
 export type { User, AuthContextType } from './AuthContext';
 
 // Additional auth-related hooks and utilities
-
-import { useState, useCallback } from 'react';
-import { useAuth } from './AuthContext';
 
 // Hook for handling login form state
 export const useLoginForm = () => {

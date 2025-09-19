@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
-use mev_shield::cli::CliHandler;
+// Note: Commenting out as cli module doesn't exist yet
+// use mev_shield::cli::CliHandler;
 
 #[derive(Parser)]
 #[clap(name = "mev-shield-cli")]
@@ -66,26 +67,32 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let handler = CliHandler::new()?;
+    // let handler = CliHandler::new()?;
     
     match &cli.command {
-        Commands::Submit { transaction, protection } => {
-            handler.submit_transaction(transaction, protection).await?;
+        Commands::Submit { transaction: _, protection: _ } => {
+            // handler.submit_transaction(transaction, protection).await?;
+            println!("Submit transaction feature not yet implemented");
         }
-        Commands::Status { id } => {
-            handler.check_status(id).await?;
+        Commands::Status { id: _ } => {
+            // handler.check_status(id).await?;
+            println!("Status check feature not yet implemented");
         }
-        Commands::Analytics { timeframe } => {
-            handler.show_analytics(timeframe).await?;
+        Commands::Analytics { timeframe: _ } => {
+            // handler.show_analytics(timeframe).await?;
+            println!("Analytics feature not yet implemented");
         }
-        Commands::Rewards { address } => {
-            handler.check_rewards(address).await?;
+        Commands::Rewards { address: _ } => {
+            // handler.check_rewards(address).await?;
+            println!("Rewards check feature not yet implemented");
         }
-        Commands::Register { address, stake } => {
-            handler.register_builder(address, *stake).await?;
+        Commands::Register { address: _, stake: _ } => {
+            // handler.register_builder(address, *stake).await?;
+            println!("Builder registration feature not yet implemented");
         }
-        Commands::Monitor { continuous } => {
-            handler.monitor_system(*continuous).await?;
+        Commands::Monitor { continuous: _ } => {
+            // handler.monitor_system(*continuous).await?;
+            println!("System monitoring feature not yet implemented");
         }
     }
     

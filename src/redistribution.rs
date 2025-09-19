@@ -81,15 +81,6 @@ impl RedistributionService {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct UserContribution {
-    pub address: Address,
-    pub total_gas_used: U256,
-    pub transaction_count: u64,
-    pub value_contributed: U256,
-    pub last_activity: DateTime<Utc>,
-    pub accumulated_rewards: U256,
-}
 
 #[derive(Clone, Debug)]
 pub struct Distribution {
@@ -425,17 +416,6 @@ impl MEVRedistributionService {
     }
 }
 
-/// Distribution Engine
-pub struct DistributionEngine;
-
-impl DistributionEngine {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-/// Payment Processor
-pub struct PaymentProcessor;
 
 #[derive(Clone, Debug)]
 pub struct PaymentResult {

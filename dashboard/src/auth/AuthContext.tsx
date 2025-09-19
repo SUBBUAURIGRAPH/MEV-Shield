@@ -310,5 +310,52 @@ export const useAuth = (): AuthContextType => {
   return context;
 };
 
+// Hook for checking permissions in components
+export const usePermissions = () => {
+  const { user, isAuthenticated } = useAuth();
+
+  // Role hierarchy for access control
+  const ROLE_HIERARCHY: Record<string, number> = {
+    'ReadOnly': 1,
+    'User': 2,
+    'Validator': 3,
+    'Admin': 4,
+  };
+
+  // Check if user has required access level
+  const hasRequiredAccess = (userRole: string, requiredRole?: string, adminOnly?: boolean): boolean => {
+    if (adminOnly) {
+      return userRole === 'Admin';
+    }
+    
+    if (!requiredRole) {
+      return true; // No specific role required
+    }
+    
+    const userLevel = ROLE_HIERARCHY[userRole] || 0;
+    const requiredLevel = ROLE_HIERARCHY[requiredRole] || 0;
+    
+    return userLevel >= requiredLevel;
+  };
+
+  const checkPermission = (requiredRole?: string, adminOnly?: boolean): boolean => {
+    if (!isAuthenticated || !user) {
+      return false;
+    }
+    
+    return hasRequiredAccess(user.role, requiredRole, adminOnly);
+  };
+
+  return {
+    isAuthenticated,
+    user,
+    canAccess: checkPermission,
+    isAdmin: user?.role === 'Admin',
+    isUser: user?.role === 'User' || user?.role === 'Admin',
+    isValidator: user?.role === 'Validator' || user?.role === 'Admin',
+    isReadOnly: !!user, // All authenticated users can read
+  };
+};
+
 // Export types for external use
 export type { User, AuthContextType };

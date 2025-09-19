@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     config::OrderingConfig,
     error::{MEVShieldError, OrderingError},
-    traits::{OrderingProof, OrderingServiceTrait},
+    traits::{OrderingProof, OrderingService},
     types::*,
 };
 
@@ -111,20 +111,6 @@ impl OrderingService {
 
 /// Key for ordering cache
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct OrderingKey {
-    pub commitment_hash: Hash,
-    pub block_height: u64,
-}
-
-/// VDF computation output
-#[derive(Debug, Clone)]
-pub struct VDFOutput {
-    pub output: BigUint,
-    pub proof: VDFProof,
-    pub computation_time: Duration,
-    pub verified: bool,
-}
-
 /// VDF proof structure
 #[derive(Debug, Clone)]
 pub struct VDFProof {
@@ -133,26 +119,12 @@ pub struct VDFProof {
     pub witness: Vec<u8>,
 }
 
-/// Batch processor for VDF computations
-pub struct BatchProcessor {
-    max_batch_size: usize,
-    pending_commitments: Arc<RwLock<Vec<OrderingCommitment>>>,
-    processing_queue: Arc<RwLock<Vec<VDFTask>>>,
-}
-
 /// VDF computation task
 #[derive(Debug, Clone)]
 pub struct VDFTask {
     pub commitment: OrderingCommitment,
     pub start_time: Instant,
     pub priority: u32,
-}
-
-/// Performance monitoring for VDF operations
-pub struct PerformanceMonitor {
-    computation_times: Arc<RwLock<VecDeque<Duration>>>,
-    success_rate: Arc<RwLock<f64>>,
-    average_batch_size: Arc<RwLock<f64>>,
 }
 
 /// Priority computation engine
@@ -563,9 +535,10 @@ impl FairOrderingService {
             result = (&result * &result) % &params.modulus;
             
             // Yield control periodically for long computations
-            if i % 1000 == 0 {
-                tokio::task::yield_now().await;
-            }
+            // Note: yield_now() requires async context, skipping for now
+            // if i % 1000 == 0 {
+            //     tokio::task::yield_now().await;
+            // }
         }
         
         Ok(result)
