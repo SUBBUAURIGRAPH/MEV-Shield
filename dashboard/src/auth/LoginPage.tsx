@@ -12,12 +12,18 @@ import {
   Divider,
   CircularProgress,
   Container,
+  Grid,
+  Chip,
 } from '@mui/material';
 import {
   Visibility,
   VisibilityOff,
   Security as SecurityIcon,
   Login as LoginIcon,
+  AdminPanelSettings,
+  Person,
+  Build,
+  SwapHoriz,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLoginForm } from './useAuth';
@@ -48,9 +54,15 @@ export const LoginPage: React.FC = () => {
   } = useLoginForm();
 
   const [rememberMe, setRememberMe] = useState(false);
+  const [values, setValues] = useState({ email: '', password: '' });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  React.useEffect(() => {
+    if (values.email) setEmail(values.email);
+    if (values.password) setPassword(values.password);
+  }, [values, setEmail, setPassword]);
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     
     try {
       await handleLogin();
@@ -240,6 +252,149 @@ export const LoginPage: React.FC = () => {
           </Typography>
         </Box>
       </Paper>
+      
+      {/* Development Quick Login Buttons */}
+      {process.env.NODE_ENV === 'development' && (
+        <Paper 
+          elevation={3} 
+          sx={{ 
+            p: 3, 
+            mt: 3, 
+            width: '100%',
+            bgcolor: 'grey.50', 
+            border: '2px dashed #ff9800',
+            borderRadius: 3,
+          }}
+        >
+          <Typography 
+            variant="subtitle1" 
+            gutterBottom 
+            align="center" 
+            color="warning.main" 
+            sx={{ fontWeight: 600, mb: 2 }}
+          >
+            🔧 Development Quick Login
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="primary"
+                startIcon={<AdminPanelSettings />}
+                onClick={() => {
+                  setValues({
+                    email: 'admin@mevshield.com',
+                    password: 'Admin123!',
+                  });
+                  setTimeout(() => handleSubmit(), 100);
+                }}
+                sx={{ 
+                  borderWidth: 2,
+                  '&:hover': { borderWidth: 2 }
+                }}
+              >
+                Login as Admin
+              </Button>
+              <Chip 
+                label="Full Access" 
+                size="small" 
+                color="primary" 
+                sx={{ mt: 1, width: '100%' }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="secondary"
+                startIcon={<Person />}
+                onClick={() => {
+                  setValues({
+                    email: 'user@mevshield.com',
+                    password: 'User123!',
+                  });
+                  setTimeout(() => handleSubmit(), 100);
+                }}
+                sx={{ 
+                  borderWidth: 2,
+                  '&:hover': { borderWidth: 2 }
+                }}
+              >
+                Login as User
+              </Button>
+              <Chip 
+                label="Trading Access" 
+                size="small" 
+                color="secondary" 
+                sx={{ mt: 1, width: '100%' }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="info"
+                startIcon={<Build />}
+                onClick={() => {
+                  setValues({
+                    email: 'builder@mevshield.com',
+                    password: 'Builder123!',
+                  });
+                  setTimeout(() => handleSubmit(), 100);
+                }}
+                sx={{ 
+                  borderWidth: 2,
+                  '&:hover': { borderWidth: 2 }
+                }}
+              >
+                Login as Builder
+              </Button>
+              <Chip 
+                label="Block Building" 
+                size="small" 
+                color="info" 
+                sx={{ mt: 1, width: '100%' }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="success"
+                startIcon={<SwapHoriz />}
+                onClick={() => {
+                  setValues({
+                    email: 'trader@mevshield.com',
+                    password: 'Trader123!',
+                  });
+                  setTimeout(() => handleSubmit(), 100);
+                }}
+                sx={{ 
+                  borderWidth: 2,
+                  '&:hover': { borderWidth: 2 }
+                }}
+              >
+                Login as Trader
+              </Button>
+              <Chip 
+                label="Swap Access" 
+                size="small" 
+                color="success" 
+                sx={{ mt: 1, width: '100%' }}
+              />
+            </Grid>
+          </Grid>
+          <Typography 
+            variant="caption" 
+            display="block" 
+            align="center" 
+            sx={{ mt: 2, color: 'text.secondary' }}
+          >
+            ⚠️ These quick login buttons are only visible in development mode
+          </Typography>
+        </Paper>
+      )}
     </Container>
   );
 };
