@@ -5,6 +5,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { ProtectedRoute, AdminRoute, UserRoute } from './auth/ProtectedRoute';
 import LoginPage from './auth/LoginPage';
 import AdminDashboard from './dashboards/AdminDashboard';
+import ImprovedAdminDashboard from './dashboards/ImprovedAdminDashboard';
 import UserDashboard from './dashboards/UserDashboard';
 
 const theme = createTheme({
@@ -85,7 +86,7 @@ const theme = createTheme({
 
 function App() {
   // Check if running on admin or user port
-  const isAdmin = window.location.port === '3001';
+  const isAdmin = window.location.port === '3002' || window.location.port === '3001';
   
   return (
     <ThemeProvider theme={theme}>
@@ -109,7 +110,7 @@ function App() {
               path="/admin" 
               element={
                 <AdminRoute>
-                  <AdminDashboard />
+                  <ImprovedAdminDashboard />
                 </AdminRoute>
               } 
             />
@@ -119,7 +120,7 @@ function App() {
               path="/dashboard" 
               element={
                 <UserRoute>
-                  {isAdmin ? <AdminDashboard /> : <UserDashboard />}
+                  {isAdmin ? <ImprovedAdminDashboard /> : <UserDashboard />}
                 </UserRoute>
               } 
             />
