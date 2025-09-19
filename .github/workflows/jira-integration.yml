@@ -1,17 +1,29 @@
-name: JIRA Integration
+name: JIRA Integration - 1 Task : 1 Ticket
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feature/*, release/*, hotfix/*]
   pull_request:
-    types: [opened, closed, reopened, synchronize]
+    types: [opened, closed, reopened, synchronize, ready_for_review, converted_to_draft]
   issues:
-    types: [opened, closed, reopened]
+    types: [opened, closed, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      epic_key:
+        description: 'Epic Key to link tasks (e.g., MEV-100)'
+        required: false
+        type: string
 
 env:
   JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
   JIRA_PROJECT_KEY: MEV
   JIRA_BOARD_ID: 855
+  # Epic Keys for MEV Shield Components
+  EPIC_FRONTEND: MEV-101
+  EPIC_BACKEND: MEV-102
+  EPIC_SECURITY: MEV-103
+  EPIC_DEPLOYMENT: MEV-104
+  EPIC_TESTING: MEV-105
 
 jobs:
   update-jira:

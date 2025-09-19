@@ -1,2 +1,6 @@
 target/
 .env
+.env.jira
+.github/secrets-config.sh
+*.log
+.DS_Store

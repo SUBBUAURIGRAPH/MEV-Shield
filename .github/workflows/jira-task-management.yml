@@ -1,0 +1,288 @@
+name: JIRA Task Management - 1:1 Mapping
+
+on:
+  push:
+    branches: [main, develop, feature/*, release/*, hotfix/*]
+  pull_request:
+    types: [opened, closed, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      task_name:
+        description: 'Task name for JIRA ticket'
+        required: true
+        type: string
+      epic_key:
+        description: 'Epic to link this task to'
+        required: false
+        type: string
+      task_type:
+        description: 'Type of task'
+        required: true
+        type: choice
+        options:
+          - Story
+          - Task
+          - Bug
+          - Sub-task
+
+env:
+  JIRA_BASE_URL: https://aurigraphdlt.atlassian.net
+  JIRA_PROJECT_KEY: MEV
+
+jobs:
+  create-ticket-for-task:
+    name: Create JIRA Ticket for Each Task
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Login to JIRA
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ env.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Extract Task Information
+        id: task_info
+        run: |
+          # Determine task category from file paths
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Get changed files
+            FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.sha }} || git diff --name-only HEAD~1..HEAD)
+            
+            # Categorize based on file paths
+            if echo "$FILES" | grep -qE "dashboard/|frontend/|\.tsx$|\.jsx$|\.css$"; then
+              CATEGORY="Frontend"
+              EPIC="MEV-101"
+            elif echo "$FILES" | grep -qE "backend/|server/|\.rs$|\.go$|api/"; then
+              CATEGORY="Backend"
+              EPIC="MEV-102"
+            elif echo "$FILES" | grep -qE "\.sol$|contracts/|security/"; then
+              CATEGORY="Security"
+              EPIC="MEV-103"
+            elif echo "$FILES" | grep -qE "\.yml$|\.yaml$|docker|k8s/|deploy/"; then
+              CATEGORY="Deployment"
+              EPIC="MEV-104"
+            elif echo "$FILES" | grep -qE "test/|spec/|\.test\.|\.spec\."; then
+              CATEGORY="Testing"
+              EPIC="MEV-105"
+            else
+              CATEGORY="General"
+              EPIC="MEV-100"
+            fi
+            
+            echo "category=$CATEGORY" >> $GITHUB_OUTPUT
+            echo "epic=$EPIC" >> $GITHUB_OUTPUT
+            echo "files=$FILES" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Parse Commit for Task Details
+        id: parse_commit
+        if: github.event_name == 'push'
+        run: |
+          # Extract task from commit message
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          # Check if commit already has JIRA key
+          EXISTING_KEY=$(echo "$COMMIT_MSG" | grep -oE 'MEV-[0-9]+' | head -1)
+          
+          if [ -z "$EXISTING_KEY" ]; then
+            # Extract task title (first line of commit)
+            TASK_TITLE=$(echo "$COMMIT_MSG" | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            # Extract task description (remaining lines)
+            TASK_DESC=$(echo "$COMMIT_MSG" | tail -n +2)
+            
+            echo "needs_ticket=true" >> $GITHUB_OUTPUT
+            echo "task_title=$TASK_TITLE" >> $GITHUB_OUTPUT
+            echo "task_description=$TASK_DESC" >> $GITHUB_OUTPUT
+          else
+            echo "needs_ticket=false" >> $GITHUB_OUTPUT
+            echo "existing_key=$EXISTING_KEY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create JIRA Ticket for Task
+        if: steps.parse_commit.outputs.needs_ticket == 'true'
+        id: create_ticket
+        uses: atlassian/gajira-create@v3
+        with:
+          project: ${{ env.JIRA_PROJECT_KEY }}
+          issuetype: Task
+          summary: |
+            ${{ steps.parse_commit.outputs.task_title }}
+          description: |
+            h3. Task Details
+            
+            *Category:* ${{ steps.task_info.outputs.category }}
+            *Author:* ${{ github.actor }}
+            *Branch:* ${{ github.ref_name }}
+            *Commit:* [${{ github.sha }}|https://github.com/${{ github.repository }}/commit/${{ github.sha }}]
+            
+            h4. Description:
+            ${{ steps.parse_commit.outputs.task_description }}
+            
+            h4. Changed Files:
+            {code}
+            ${{ steps.task_info.outputs.files }}
+            {code}
+            
+            h4. GitHub Link:
+            [View Commit|https://github.com/${{ github.repository }}/commit/${{ github.sha }}]
+          fields: |
+            {
+              "labels": ["github-auto", "${{ steps.task_info.outputs.category }}"],
+              "customfield_10014": "${{ steps.task_info.outputs.epic }}"
+            }
+
+      - name: Update Commit with JIRA Key
+        if: steps.create_ticket.outputs.issue != ''
+        run: |
+          # Add JIRA key to commit message for future reference
+          echo "Created JIRA ticket: ${{ steps.create_ticket.outputs.issue }}"
+          
+          # Create a tag with JIRA reference
+          git tag -a "jira/${{ steps.create_ticket.outputs.issue }}" ${{ github.sha }} \
+            -m "JIRA Ticket: ${{ steps.create_ticket.outputs.issue }}"
+          
+          # Try to push tag (may fail if no permissions)
+          git push origin "jira/${{ steps.create_ticket.outputs.issue }}" || true
+
+  manage-pr-tickets:
+    name: Manage PR-Related Tickets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to JIRA
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ env.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Parse PR for Tasks
+        id: parse_pr
+        run: |
+          # Extract all tasks from PR description
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          
+          # Check for existing JIRA keys
+          EXISTING_KEYS=$(echo "$PR_TITLE $PR_BODY" | grep -oE 'MEV-[0-9]+' | sort -u)
+          
+          if [ -z "$EXISTING_KEYS" ]; then
+            # Parse tasks from PR checklist
+            TASKS=$(echo "$PR_BODY" | grep -E '^\s*[-*]\s*\[.\]\s*' | sed 's/^\s*[-*]\s*\[.\]\s*//')
+            
+            echo "needs_tickets=true" >> $GITHUB_OUTPUT
+            echo "tasks<<EOF" >> $GITHUB_OUTPUT
+            echo "$TASKS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "needs_tickets=false" >> $GITHUB_OUTPUT
+            echo "existing_keys=$EXISTING_KEYS" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Sub-tasks for PR Tasks
+        if: steps.parse_pr.outputs.needs_tickets == 'true' && github.event.action == 'opened'
+        run: |
+          # Create parent task for PR
+          PARENT_RESPONSE=$(curl -X POST \
+            -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "fields": {
+                "project": {"key": "${{ env.JIRA_PROJECT_KEY }}"},
+                "summary": "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}",
+                "description": "Pull Request: ${{ github.event.pull_request.html_url }}",
+                "issuetype": {"name": "Story"},
+                "labels": ["pull-request", "github-pr"]
+              }
+            }' \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/issue")
+          
+          PARENT_KEY=$(echo $PARENT_RESPONSE | jq -r '.key')
+          
+          # Create sub-task for each task in PR
+          while IFS= read -r task; do
+            if [ ! -z "$task" ]; then
+              curl -X POST \
+                -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"fields\": {
+                    \"project\": {\"key\": \"${{ env.JIRA_PROJECT_KEY }}\"},
+                    \"parent\": {\"key\": \"$PARENT_KEY\"},
+                    \"summary\": \"$task\",
+                    \"issuetype\": {\"name\": \"Sub-task\"},
+                    \"labels\": [\"pr-task\"]
+                  }
+                }" \
+                "${{ env.JIRA_BASE_URL }}/rest/api/3/issue"
+            fi
+          done <<< "${{ steps.parse_pr.outputs.tasks }}"
+          
+          # Comment on PR with JIRA links
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "✅ Created JIRA Story: $PARENT_KEY with sub-tasks for each checklist item"
+
+      - name: Update Linked Issues on PR Merge
+        if: github.event.action == 'closed' && github.event.pull_request.merged
+        run: |
+          # Get all JIRA keys mentioned in PR
+          KEYS=$(echo "${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}" | grep -oE 'MEV-[0-9]+' | sort -u)
+          
+          for KEY in $KEYS; do
+            # Transition to Done
+            curl -X POST \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d '{"transition": {"id": "31"}}' \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$KEY/transitions"
+            
+            # Add comment
+            curl -X POST \
+              -H "Authorization: Basic $(echo -n '${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}' | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{\"body\": \"✅ Completed via PR #${{ github.event.pull_request.number }}\"}" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$KEY/comment"
+          done
+
+  epic-management:
+    name: Manage Epic Grouping
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Login to JIRA
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ env.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Create Task in Epic
+        uses: atlassian/gajira-create@v3
+        with:
+          project: ${{ env.JIRA_PROJECT_KEY }}
+          issuetype: Task
+          summary: ${{ github.event.inputs.task_name }}
+          description: |
+            Task created via GitHub Actions
+            
+            Created by: ${{ github.actor }}
+            Repository: ${{ github.repository }}
+            Epic: ${{ github.event.inputs.epic_key || 'Not specified' }}
+          fields: |
+            {
+              "customfield_10014": "${{ github.event.inputs.epic_key }}",
+              "labels": ["github-manual"]
+            }
