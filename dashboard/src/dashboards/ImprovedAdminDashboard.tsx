@@ -51,6 +51,7 @@ import {
   ExchangeVolumeChart,
 } from '../components/charts/ImprovedCharts';
 import { ExchangeIntegration } from '../components/ExchangeIntegration';
+import DexIntegration from '../components/DexIntegration';
 
 // Styled component for spinning animation
 const SpinningIcon = styled(Refresh)`
@@ -198,6 +199,7 @@ const ImprovedAdminDashboard: React.FC = () => {
           <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tab icon={<Dashboard />} label="Overview" iconPosition="start" />
             <Tab icon={<Timeline />} label="Analytics" iconPosition="start" />
+            <Tab icon={<SwapHoriz />} label="DEX Protection" iconPosition="start" />
             <Tab icon={<Business />} label="Exchanges" iconPosition="start" />
             <Tab icon={<Security />} label="Security" iconPosition="start" />
             <Tab icon={<Group />} label="Validators" iconPosition="start" />
@@ -347,13 +349,18 @@ const ImprovedAdminDashboard: React.FC = () => {
           </Grid>
         )}
 
-        {/* Exchanges Tab */}
+        {/* DEX Protection Tab */}
         {activeTab === 2 && (
+          <DexIntegration />
+        )}
+
+        {/* Exchanges Tab */}
+        {activeTab === 3 && (
           <ExchangeIntegration />
         )}
 
         {/* Security Tab */}
-        {activeTab === 3 && (
+        {activeTab === 4 && (
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <Paper sx={{ p: 3 }}>
@@ -369,7 +376,7 @@ const ImprovedAdminDashboard: React.FC = () => {
         )}
 
         {/* Validators Tab */}
-        {activeTab === 4 && (
+        {activeTab === 5 && (
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <Paper sx={{ p: 3 }}>
