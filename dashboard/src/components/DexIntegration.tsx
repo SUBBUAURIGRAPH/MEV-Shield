@@ -222,7 +222,7 @@ const DexIntegration: React.FC = () => {
           </Button>
           <Button
             variant="contained"
-            color={autoProtect ? 'success' : 'default'}
+            color={autoProtect ? 'success' : 'inherit'}
             startIcon={<Shield />}
             onClick={() => setAutoProtect(!autoProtect)}
           >
