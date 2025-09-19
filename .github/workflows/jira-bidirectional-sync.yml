@@ -1,0 +1,379 @@
+name: Bidirectional JIRA Sync
+# Two-way synchronization between GitHub and JIRA
+# Scheduled and manual triggers
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: 'Sync direction'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - github-to-jira
+          - jira-to-github
+      dry_run:
+        description: 'Dry run (no updates)'
+        type: boolean
+        default: false
+
+jobs:
+  bidirectional-sync:
+    runs-on: ubuntu-latest
+    name: Bidirectional Sync
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests python-dateutil pytz
+
+      - name: Create sync script
+        run: |
+          cat << 'EOF' > sync.py
+          import os
+          import sys
+          import json
+          import base64
+          import requests
+          from datetime import datetime, timezone
+          from dateutil import parser
+          import pytz
+          
+          # Configuration
+          JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL')
+          JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL')
+          JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN')
+          GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
+          GITHUB_OWNER = os.environ.get('GITHUB_REPOSITORY_OWNER')
+          GITHUB_REPO = os.environ.get('GITHUB_REPOSITORY').split('/')[-1]
+          DRY_RUN = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+          
+          # JIRA Auth
+          jira_auth = base64.b64encode(f"{JIRA_USER_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
+          jira_headers = {
+              'Authorization': f'Basic {jira_auth}',
+              'Content-Type': 'application/json'
+          }
+          
+          # GitHub Auth
+          github_headers = {
+              'Authorization': f'token {GITHUB_TOKEN}',
+              'Accept': 'application/vnd.github.v3+json'
+          }
+          
+          # Status mapping
+          STATUS_MAP = {
+              'github_to_jira': {
+                  'open': 'To Do',
+                  'closed': 'Done',
+                  'merged': 'Done',
+                  'draft': 'In Progress',
+                  'in_progress': 'In Progress',
+                  'review_required': 'In Review'
+              },
+              'jira_to_github': {
+                  'To Do': 'open',
+                  'In Progress': 'open',
+                  'In Review': 'open',
+                  'Done': 'closed',
+                  'Closed': 'closed',
+                  'Resolved': 'closed'
+              }
+          }
+          
+          def get_jira_issues():
+              """Fetch all MEV project issues from JIRA"""
+              print("Fetching JIRA issues...")
+              jql = 'project = MEV ORDER BY updated DESC'
+              url = f"{JIRA_BASE_URL}/rest/api/3/search"
+              params = {
+                  'jql': jql,
+                  'maxResults': 100,
+                  'fields': 'summary,description,status,labels,created,updated,comment'
+              }
+              
+              response = requests.get(url, headers=jira_headers, params=params)
+              if response.status_code == 200:
+                  return response.json()['issues']
+              else:
+                  print(f"Failed to fetch JIRA issues: {response.status_code}")
+                  return []
+          
+          def get_github_items():
+              """Fetch all issues and PRs from GitHub"""
+              print("Fetching GitHub issues and PRs...")
+              items = []
+              
+              # Get issues
+              url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
+              params = {'state': 'all', 'per_page': 100}
+              response = requests.get(url, headers=github_headers, params=params)
+              if response.status_code == 200:
+                  items.extend(response.json())
+              
+              # Get PRs
+              url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls"
+              response = requests.get(url, headers=github_headers, params=params)
+              if response.status_code == 200:
+                  items.extend(response.json())
+              
+              return items
+          
+          def extract_jira_keys(text):
+              """Extract JIRA keys from text"""
+              import re
+              if not text:
+                  return []
+              pattern = r'MEV-\d+'
+              return list(set(re.findall(pattern, text)))
+          
+          def parse_github_reference(text):
+              """Extract GitHub references from text"""
+              import re
+              if not text:
+                  return []
+              
+              refs = []
+              # Match #123 or GH-123 patterns
+              patterns = [r'#(\d+)', r'GH-(\d+)']
+              for pattern in patterns:
+                  matches = re.findall(pattern, text)
+                  refs.extend(matches)
+              
+              return list(set(refs))
+          
+          def update_jira_from_github(github_item, jira_key):
+              """Update JIRA ticket from GitHub issue/PR"""
+              print(f"  Updating JIRA {jira_key} from GitHub #{github_item['number']}")
+              
+              if DRY_RUN:
+                  print("    [DRY RUN] Would update JIRA ticket")
+                  return
+              
+              # Prepare description
+              description = f"""
+              GitHub #{github_item['number']}: {github_item['title']}
+              
+              Author: {github_item['user']['login']}
+              Status: {github_item['state']}
+              URL: {github_item['html_url']}
+              Created: {github_item['created_at']}
+              Updated: {github_item['updated_at']}
+              
+              --- Description ---
+              {github_item.get('body', '')}
+              
+              --- Sync Info ---
+              Last synced: {datetime.now(timezone.utc).isoformat()}
+              Source: GitHub API
+              """
+              
+              # Update JIRA description
+              url = f"{JIRA_BASE_URL}/rest/api/3/issue/{jira_key}"
+              data = {
+                  'fields': {
+                      'description': {
+                          'type': 'doc',
+                          'version': 1,
+                          'content': [{
+                              'type': 'paragraph',
+                              'content': [{
+                                  'type': 'text',
+                                  'text': description
+                              }]
+                          }]
+                      }
+                  }
+              }
+              
+              response = requests.put(url, json=data, headers=jira_headers)
+              if response.status_code in [200, 204]:
+                  print(f"    ✓ Updated description")
+              else:
+                  print(f"    ✗ Failed to update: {response.status_code}")
+              
+              # Update status
+              github_status = 'merged' if github_item.get('merged') else github_item['state']
+              target_status = STATUS_MAP['github_to_jira'].get(github_status, 'To Do')
+              
+              # Get transitions
+              trans_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{jira_key}/transitions"
+              response = requests.get(trans_url, headers=jira_headers)
+              
+              if response.status_code == 200:
+                  transitions = response.json()['transitions']
+                  for trans in transitions:
+                      if trans['to']['name'] == target_status:
+                          trans_data = {'transition': {'id': trans['id']}}
+                          requests.post(trans_url, json=trans_data, headers=jira_headers)
+                          print(f"    ✓ Status updated to {target_status}")
+                          break
+          
+          def create_or_update_github_issue(jira_issue):
+              """Create or update GitHub issue from JIRA ticket"""
+              jira_key = jira_issue['key']
+              print(f"  Processing JIRA {jira_key}")
+              
+              if DRY_RUN:
+                  print("    [DRY RUN] Would create/update GitHub issue")
+                  return
+              
+              # Check if GitHub issue exists
+              github_refs = parse_github_reference(jira_issue['fields'].get('description', ''))
+              
+              title = f"[{jira_key}] {jira_issue['fields']['summary']}"
+              body = f"""
+              **JIRA Ticket:** [{jira_key}]({JIRA_BASE_URL}/browse/{jira_key})
+              **Status:** {jira_issue['fields']['status']['name']}
+              **Created:** {jira_issue['fields']['created']}
+              **Updated:** {jira_issue['fields']['updated']}
+              
+              ---
+              
+              {jira_issue['fields'].get('description', 'No description')}
+              
+              ---
+              *Synced from JIRA at {datetime.now(timezone.utc).isoformat()}*
+              """
+              
+              if github_refs:
+                  # Update existing issue
+                  for ref in github_refs:
+                      url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{ref}"
+                      data = {
+                          'title': title,
+                          'body': body,
+                          'state': STATUS_MAP['jira_to_github'].get(
+                              jira_issue['fields']['status']['name'], 'open'
+                          )
+                      }
+                      response = requests.patch(url, json=data, headers=github_headers)
+                      if response.status_code == 200:
+                          print(f"    ✓ Updated GitHub issue #{ref}")
+              else:
+                  # Create new issue
+                  url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
+                  data = {
+                      'title': title,
+                      'body': body,
+                      'labels': ['jira-sync', jira_key]
+                  }
+                  response = requests.post(url, json=data, headers=github_headers)
+                  if response.status_code == 201:
+                      issue_number = response.json()['number']
+                      print(f"    ✓ Created GitHub issue #{issue_number}")
+                      
+                      # Update JIRA with GitHub reference
+                      comment_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{jira_key}/comment"
+                      comment_data = {
+                          'body': {
+                              'type': 'doc',
+                              'version': 1,
+                              'content': [{
+                                  'type': 'paragraph',
+                                  'content': [{
+                                      'type': 'text',
+                                      'text': f'Created GitHub issue #{issue_number}'
+                                  }]
+                              }]
+                          }
+                      }
+                      requests.post(comment_url, json=comment_data, headers=jira_headers)
+          
+          def get_last_sync_time():
+              """Get the last sync timestamp from a file"""
+              try:
+                  with open('.last_sync', 'r') as f:
+                      return parser.parse(f.read().strip())
+              except:
+                  return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
+          
+          def save_last_sync_time():
+              """Save the current sync timestamp"""
+              with open('.last_sync', 'w') as f:
+                  f.write(datetime.now(timezone.utc).isoformat())
+          
+          def main():
+              print("=" * 50)
+              print("BIDIRECTIONAL JIRA-GITHUB SYNC")
+              print("=" * 50)
+              print(f"Direction: {os.environ.get('SYNC_DIRECTION', 'both')}")
+              print(f"Dry Run: {DRY_RUN}")
+              print()
+              
+              direction = os.environ.get('SYNC_DIRECTION', 'both')
+              last_sync = get_last_sync_time()
+              
+              # GitHub to JIRA sync
+              if direction in ['both', 'github-to-jira']:
+                  print("## GitHub → JIRA Sync")
+                  print("-" * 30)
+                  github_items = get_github_items()
+                  
+                  for item in github_items:
+                      # Check if updated since last sync
+                      if parser.parse(item['updated_at']) > last_sync:
+                          jira_keys = extract_jira_keys(
+                              f"{item.get('title', '')} {item.get('body', '')}"
+                          )
+                          for jira_key in jira_keys:
+                              update_jira_from_github(item, jira_key)
+                  print()
+              
+              # JIRA to GitHub sync
+              if direction in ['both', 'jira-to-github']:
+                  print("## JIRA → GitHub Sync")
+                  print("-" * 30)
+                  jira_issues = get_jira_issues()
+                  
+                  for issue in jira_issues:
+                      # Check if updated since last sync
+                      if parser.parse(issue['fields']['updated']) > last_sync:
+                          create_or_update_github_issue(issue)
+                  print()
+              
+              if not DRY_RUN:
+                  save_last_sync_time()
+              
+              print("=" * 50)
+              print("SYNC COMPLETE!")
+              print("=" * 50)
+          
+          if __name__ == '__main__':
+              main()
+          EOF
+
+      - name: Run sync
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SYNC_DIRECTION: ${{ github.event.inputs.direction || 'both' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          python sync.py
+
+      - name: Create sync report
+        if: always()
+        run: |
+          echo "## 🔄 Bidirectional Sync Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Direction**: ${{ github.event.inputs.direction || 'both' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check workflow logs for detailed sync results." >> $GITHUB_STEP_SUMMARY

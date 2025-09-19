@@ -1,0 +1,350 @@
+name: JIRA Sync
+# Synchronizes GitHub activity with JIRA tickets
+# Updates descriptions and status in JIRA based on GitHub events
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  pull_request:
+    types: [opened, edited, closed, merged, ready_for_review, converted_to_draft]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      sync_all:
+        description: 'Sync all open issues and PRs'
+        type: boolean
+        default: false
+      jira_key:
+        description: 'Specific JIRA key to sync (optional)'
+        required: false
+
+jobs:
+  sync-to-jira:
+    runs-on: ubuntu-latest
+    name: Sync GitHub to JIRA
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Extract JIRA Keys
+        id: extract
+        run: |
+          # Extract JIRA keys from various sources
+          JIRA_KEYS=""
+          
+          # From PR/Issue title and body
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TITLE="${{ github.event.pull_request.title }}"
+            BODY="${{ github.event.pull_request.body }}"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            echo "source_type=pull_request" >> $GITHUB_OUTPUT
+            echo "source_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            TITLE="${{ github.event.issue.title }}"
+            BODY="${{ github.event.issue.body }}"
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+            echo "source_type=issue" >> $GITHUB_OUTPUT
+            echo "source_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          fi
+          
+          # Manual sync
+          if [[ "${{ github.event.inputs.jira_key }}" != "" ]]; then
+            JIRA_KEYS="${{ github.event.inputs.jira_key }}"
+          else
+            # Extract MEV-XXX pattern
+            KEYS_FROM_TITLE=$(echo "$TITLE" | grep -oE 'MEV-[0-9]+' | tr '\n' ' ')
+            KEYS_FROM_BODY=$(echo "$BODY" | grep -oE 'MEV-[0-9]+' | tr '\n' ' ')
+            JIRA_KEYS="$KEYS_FROM_TITLE $KEYS_FROM_BODY"
+          fi
+          
+          # Remove duplicates
+          JIRA_KEYS=$(echo $JIRA_KEYS | tr ' ' '\n' | sort -u | tr '\n' ' ')
+          echo "jira_keys=$JIRA_KEYS" >> $GITHUB_OUTPUT
+          echo "Found JIRA keys: $JIRA_KEYS"
+
+      - name: Get GitHub Status
+        id: github_status
+        if: steps.extract.outputs.jira_keys != ''
+        run: |
+          # Determine status based on GitHub state
+          STATUS="To Do"
+          RESOLUTION=""
+          
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
+              STATUS="In Progress"
+            elif [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+              STATUS="Done"
+              RESOLUTION="Done"
+            elif [[ "${{ github.event.pull_request.state }}" == "closed" ]]; then
+              STATUS="Done"
+              RESOLUTION="Won't Do"
+            elif [[ "${{ github.event.action }}" == "ready_for_review" ]]; then
+              STATUS="In Review"
+            else
+              STATUS="In Progress"
+            fi
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            if [[ "${{ github.event.issue.state }}" == "closed" ]]; then
+              STATUS="Done"
+              RESOLUTION="Done"
+            elif [[ "${{ github.event.action }}" == "opened" ]]; then
+              STATUS="To Do"
+            else
+              STATUS="In Progress"
+            fi
+          fi
+          
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "resolution=$RESOLUTION" >> $GITHUB_OUTPUT
+          echo "GitHub Status: $STATUS (Resolution: $RESOLUTION)"
+
+      - name: Sync Description to JIRA
+        if: steps.extract.outputs.jira_keys != ''
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          # Function to update JIRA ticket
+          update_jira_ticket() {
+            local JIRA_KEY=$1
+            local STATUS=$2
+            local SOURCE_TYPE=$3
+            local SOURCE_NUMBER=$4
+            
+            echo "Updating JIRA ticket: $JIRA_KEY"
+            
+            # Prepare description based on source
+            if [[ "$SOURCE_TYPE" == "pull_request" ]]; then
+              TITLE="${{ github.event.pull_request.title }}"
+              BODY="${{ github.event.pull_request.body }}"
+              URL="${{ github.event.pull_request.html_url }}"
+              AUTHOR="${{ github.event.pull_request.user.login }}"
+              STATE="${{ github.event.pull_request.state }}"
+              MERGED="${{ github.event.pull_request.merged }}"
+              
+              # Get PR metadata
+              ADDITIONS="${{ github.event.pull_request.additions }}"
+              DELETIONS="${{ github.event.pull_request.deletions }}"
+              CHANGED_FILES="${{ github.event.pull_request.changed_files }}"
+              
+              DESCRIPTION="# GitHub Pull Request #$SOURCE_NUMBER\n\n"
+              DESCRIPTION+="**Title:** $TITLE\n"
+              DESCRIPTION+="**Author:** @$AUTHOR\n"
+              DESCRIPTION+="**Status:** $STATE\n"
+              DESCRIPTION+="**Merged:** $MERGED\n"
+              DESCRIPTION+="**URL:** $URL\n\n"
+              DESCRIPTION+="## Changes\n"
+              DESCRIPTION+="- **Files Changed:** $CHANGED_FILES\n"
+              DESCRIPTION+="- **Lines Added:** +$ADDITIONS\n"
+              DESCRIPTION+="- **Lines Removed:** -$DELETIONS\n\n"
+              DESCRIPTION+="## Description\n$BODY\n\n"
+              DESCRIPTION+="---\n*Synced from GitHub at $(date -u +%Y-%m-%dT%H:%M:%SZ)*"
+              
+            elif [[ "$SOURCE_TYPE" == "issue" ]]; then
+              TITLE="${{ github.event.issue.title }}"
+              BODY="${{ github.event.issue.body }}"
+              URL="${{ github.event.issue.html_url }}"
+              AUTHOR="${{ github.event.issue.user.login }}"
+              STATE="${{ github.event.issue.state }}"
+              LABELS="${{ join(github.event.issue.labels.*.name, ', ') }}"
+              
+              DESCRIPTION="# GitHub Issue #$SOURCE_NUMBER\n\n"
+              DESCRIPTION+="**Title:** $TITLE\n"
+              DESCRIPTION+="**Author:** @$AUTHOR\n"
+              DESCRIPTION+="**Status:** $STATE\n"
+              DESCRIPTION+="**Labels:** $LABELS\n"
+              DESCRIPTION+="**URL:** $URL\n\n"
+              DESCRIPTION+="## Description\n$BODY\n\n"
+              DESCRIPTION+="---\n*Synced from GitHub at $(date -u +%Y-%m-%dT%H:%M:%SZ)*"
+            fi
+            
+            # Escape the description for JSON
+            DESCRIPTION=$(echo "$DESCRIPTION" | jq -Rs .)
+            
+            # Update JIRA ticket description
+            UPDATE_PAYLOAD=$(cat <<EOF
+            {
+              "fields": {
+                "description": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": $DESCRIPTION
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+            EOF
+            )
+            
+            # Update description
+            curl -X PUT \
+              -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+              -H "Content-Type: application/json" \
+              -d "$UPDATE_PAYLOAD" \
+              "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}"
+            
+            # Add comment about the sync
+            COMMENT_BODY=$(cat <<EOF
+            {
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "🔄 Synchronized from GitHub ${SOURCE_TYPE} #${SOURCE_NUMBER}",
+                        "marks": [{"type": "strong"}]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Action: ${{ github.event.action }}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "GitHub Status → JIRA Status: ${STATE} → ${STATUS}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "View on GitHub: ${URL}"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            EOF
+            )
+            
+            # Add sync comment
+            curl -X POST \
+              -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+              -H "Content-Type: application/json" \
+              -d "$COMMENT_BODY" \
+              "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}/comment"
+          }
+          
+          # Process each JIRA key
+          for KEY in ${{ steps.extract.outputs.jira_keys }}; do
+            update_jira_ticket "$KEY" \
+              "${{ steps.github_status.outputs.status }}" \
+              "${{ steps.extract.outputs.source_type }}" \
+              "${{ steps.extract.outputs.source_number }}"
+          done
+
+      - name: Transition JIRA Status
+        if: steps.extract.outputs.jira_keys != '' && steps.github_status.outputs.status != ''
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          # Function to transition JIRA status
+          transition_status() {
+            local JIRA_KEY=$1
+            local TARGET_STATUS=$2
+            
+            echo "Transitioning $JIRA_KEY to $TARGET_STATUS"
+            
+            # Get available transitions
+            TRANSITIONS=$(curl -s \
+              -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+              "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}/transitions")
+            
+            # Find transition ID for target status
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r ".transitions[] | select(.to.name==\"${TARGET_STATUS}\") | .id" | head -1)
+            
+            if [[ -n "$TRANSITION_ID" ]]; then
+              echo "Found transition ID: $TRANSITION_ID for status: $TARGET_STATUS"
+              
+              # Perform transition
+              curl -X POST \
+                -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+                -H "Content-Type: application/json" \
+                -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}" \
+                "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_KEY}/transitions"
+              
+              echo "✓ Transitioned $JIRA_KEY to $TARGET_STATUS"
+            else
+              echo "⚠ No transition available to $TARGET_STATUS for $JIRA_KEY"
+            fi
+          }
+          
+          # Process each JIRA key
+          for KEY in ${{ steps.extract.outputs.jira_keys }}; do
+            transition_status "$KEY" "${{ steps.github_status.outputs.status }}"
+          done
+
+      - name: Sync Labels
+        if: steps.extract.outputs.jira_keys != '' && github.event_name == 'issues'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          # Sync GitHub labels to JIRA
+          LABELS='${{ toJson(github.event.issue.labels.*.name) }}'
+          
+          for KEY in ${{ steps.extract.outputs.jira_keys }}; do
+            echo "Syncing labels to $KEY"
+            
+            # Convert GitHub labels to JIRA labels
+            JIRA_LABELS=$(echo "$LABELS" | jq -c '. + ["github-synced"]')
+            
+            # Update labels
+            curl -X PUT \
+              -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+              -H "Content-Type: application/json" \
+              -d "{\"fields\": {\"labels\": $JIRA_LABELS}}" \
+              "${JIRA_BASE_URL}/rest/api/3/issue/${KEY}"
+          done
+
+      - name: Create Summary Report
+        if: always()
+        run: |
+          echo "## 📊 JIRA Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action**: ${{ github.event.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JIRA Keys**: ${{ steps.extract.outputs.jira_keys }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Status**: ${{ steps.github_status.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
