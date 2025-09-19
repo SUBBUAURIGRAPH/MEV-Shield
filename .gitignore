@@ -4,3 +4,5 @@ target/
 .github/secrets-config.sh
 *.log
 .DS_Store
+node_modules/
+*.tar.gz

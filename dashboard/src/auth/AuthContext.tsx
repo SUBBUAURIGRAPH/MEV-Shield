@@ -56,7 +56,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // Configure axios defaults
 axios.defaults.baseURL = API_BASE_URL;
-axios.defaults.withCredentials = true;
+// Don't use withCredentials for JWT-based auth
+axios.defaults.withCredentials = false;
 
 // Auth provider component
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {

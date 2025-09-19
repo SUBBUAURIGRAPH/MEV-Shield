@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MEV Shield - Test Login</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .accounts {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #ddd;
+        }
+        .account {
+            background: #f9f9f9;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .account:hover {
+            background: #e9e9e9;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .sw-status {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MEV Shield - Test Login</h1>
+        
+        <div class="sw-status" id="swStatus">
+            Checking Service Worker status...
+        </div>
+        
+        <div class="form-group">
+            <label>Email:</label>
+            <input type="email" id="email" placeholder="Enter email">
+        </div>
+        
+        <div class="form-group">
+            <label>Password:</label>
+            <input type="password" id="password" placeholder="Enter password">
+        </div>
+        
+        <button onclick="testLogin()">Test Login</button>
+        
+        <div class="result" id="result"></div>
+        
+        <div class="accounts">
+            <h3>Test Accounts (Click to fill)</h3>
+            <div class="account" onclick="fillAccount('admin@mevshield.ai', 'admin123')">
+                <strong>Admin:</strong> admin@mevshield.ai / admin123
+            </div>
+            <div class="account" onclick="fillAccount('user@mevshield.ai', 'user123')">
+                <strong>User:</strong> user@mevshield.ai / user123
+            </div>
+            <div class="account" onclick="fillAccount('builder@mevshield.ai', 'builder123')">
+                <strong>Builder:</strong> builder@mevshield.ai / builder123
+            </div>
+            <div class="account" onclick="fillAccount('trader@mevshield.ai', 'trader123')">
+                <strong>Trader:</strong> trader@mevshield.ai / trader123
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Check and clear service workers
+        async function checkServiceWorker() {
+            const statusEl = document.getElementById('swStatus');
+            
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                if (registrations.length > 0) {
+                    statusEl.innerHTML = `⚠️ Found ${registrations.length} service worker(s). Clearing...`;
+                    for(let registration of registrations) {
+                        await registration.unregister();
+                    }
+                    // Clear caches too
+                    const cacheNames = await caches.keys();
+                    for (let name of cacheNames) {
+                        await caches.delete(name);
+                    }
+                    statusEl.innerHTML = '✅ Service workers cleared! Page is ready for testing.';
+                } else {
+                    statusEl.innerHTML = '✅ No service workers active. Page is ready for testing.';
+                }
+            } else {
+                statusEl.innerHTML = '✅ Service workers not supported. Page is ready for testing.';
+            }
+        }
+        
+        checkServiceWorker();
+        
+        function fillAccount(email, password) {
+            document.getElementById('email').value = email;
+            document.getElementById('password').value = password;
+        }
+        
+        async function testLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const resultEl = document.getElementById('result');
+            
+            if (!email || !password) {
+                showResult('Please enter email and password', false);
+                return;
+            }
+            
+            try {
+                const response = await fetch('http://localhost:8080/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    const user = data.data.user;
+                    showResult(`✅ Login successful!<br>
+                        User: ${user.email}<br>
+                        Role: ${user.role}<br>
+                        Token: ${data.data.access_token.substring(0, 30)}...`, true);
+                    
+                    // Store token for future use
+                    localStorage.setItem('mev_shield_token', data.data.access_token);
+                    localStorage.setItem('mev_shield_user', JSON.stringify(user));
+                    
+                    // Redirect based on role
+                    setTimeout(() => {
+                        let redirectPath = '/';
+                        switch(user.role) {
+                            case 'Admin':
+                                redirectPath = '/admin';
+                                break;
+                            case 'Builder':
+                                redirectPath = '/builder';
+                                break;
+                            case 'Trader':
+                                redirectPath = '/trader';
+                                break;
+                            default:
+                                redirectPath = '/dashboard';
+                        }
+                        resultEl.innerHTML += `<br>Redirecting to ${redirectPath}...`;
+                        setTimeout(() => {
+                            window.location.href = redirectPath;
+                        }, 1000);
+                    }, 1000);
+                } else {
+                    showResult(`❌ Login failed: ${data.error || 'Invalid credentials'}`, false);
+                }
+            } catch (error) {
+                showResult(`❌ Network error: ${error.message}`, false);
+            }
+        }
+        
+        function showResult(message, success) {
+            const resultEl = document.getElementById('result');
+            resultEl.innerHTML = message;
+            resultEl.className = `result ${success ? 'success' : 'error'}`;
+            resultEl.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

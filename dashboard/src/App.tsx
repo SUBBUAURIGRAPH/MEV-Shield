@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import { AuthProvider, useAuth } from './auth/AuthContext';
-import { ProtectedRoute, AdminRoute, UserRoute } from './auth/ProtectedRoute';
+import { ProtectedRoute, AdminRoute, UserRoute, BuilderRoute, TraderRoute } from './auth/ProtectedRoute';
 import LoginPage from './auth/LoginPage';
 import AdminDashboard from './dashboards/AdminDashboard';
 import ImprovedAdminDashboard from './dashboards/ImprovedAdminDashboard';
@@ -151,9 +151,9 @@ function App() {
             <Route 
               path="/builder" 
               element={
-                <ProtectedRoute>
+                <BuilderRoute>
                   <BuilderDashboard />
-                </ProtectedRoute>
+                </BuilderRoute>
               } 
             />
             
@@ -161,9 +161,9 @@ function App() {
             <Route 
               path="/trader" 
               element={
-                <ProtectedRoute>
+                <TraderRoute>
                   <TraderDashboard />
-                </ProtectedRoute>
+                </TraderRoute>
               } 
             />
             

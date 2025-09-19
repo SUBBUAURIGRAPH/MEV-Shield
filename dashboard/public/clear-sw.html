@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Service Worker</title>
+</head>
+<body>
+    <h1>Clearing Service Worker...</h1>
+    <script>
+        // Unregister all service workers
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for(let registration of registrations) {
+                registration.unregister().then(function() {
+                    console.log('Service worker unregistered:', registration);
+                });
+            }
+        });
+        
+        // Clear all caches
+        caches.keys().then(function(names) {
+            for (let name of names) {
+                caches.delete(name);
+                console.log('Cache deleted:', name);
+            }
+        });
+        
+        // Redirect after clearing
+        setTimeout(function() {
+            window.location.href = '/';
+        }, 2000);
+    </script>
+    <p>Service workers cleared. Redirecting...</p>
+</body>
+</html>

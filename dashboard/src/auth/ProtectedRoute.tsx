@@ -5,7 +5,7 @@ import { useAuth, User } from './AuthContext';
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  requiredRole?: 'Admin' | 'User' | 'Validator' | 'ReadOnly';
+  requiredRole?: 'Admin' | 'User' | 'Validator' | 'ReadOnly' | 'Builder' | 'Trader';
   adminOnly?: boolean;
   fallback?: ReactNode;
   redirectTo?: string;
@@ -15,6 +15,8 @@ interface ProtectedRouteProps {
 const ROLE_HIERARCHY: Record<string, number> = {
   'ReadOnly': 1,
   'User': 2,
+  'Trader': 2,
+  'Builder': 3,
   'Validator': 3,
   'Admin': 4,
 };
@@ -236,6 +238,18 @@ export const ValidatorRoute: React.FC<Omit<ProtectedRouteProps, 'requiredRole'>>
 
 export const ReadOnlyRoute: React.FC<Omit<ProtectedRouteProps, 'requiredRole'>> = ({ children, ...props }) => (
   <ProtectedRoute {...props} requiredRole="ReadOnly">
+    {children}
+  </ProtectedRoute>
+);
+
+export const BuilderRoute: React.FC<Omit<ProtectedRouteProps, 'requiredRole'>> = ({ children, ...props }) => (
+  <ProtectedRoute {...props} requiredRole="Builder">
+    {children}
+  </ProtectedRoute>
+);
+
+export const TraderRoute: React.FC<Omit<ProtectedRouteProps, 'requiredRole'>> = ({ children, ...props }) => (
+  <ProtectedRoute {...props} requiredRole="Trader">
     {children}
   </ProtectedRoute>
 );
