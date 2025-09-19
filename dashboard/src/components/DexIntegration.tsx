@@ -107,9 +107,7 @@ const DexIntegration: React.FC = () => {
       protected: true,
     },
     {
-      address: '0x1d42064Fc4Beb5F8aAF85F4617AE3
-
-5F8aAF85F4617AE3',
+      address: '0x1d42064Fc4Beb5F8aAF85F4617AE8F8aAF85F4617AE3',
       token0: 'CAKE',
       token1: 'BNB',
       liquidity: '45.2M',
