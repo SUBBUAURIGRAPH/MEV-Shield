@@ -5,7 +5,7 @@ import axios, { AxiosResponse } from 'axios';
 interface User {
   id: string;
   email: string;
-  role: 'Admin' | 'User' | 'Validator' | 'ReadOnly';
+  role: 'Admin' | 'User' | 'Builder' | 'Trader' | 'Validator' | 'ReadOnly';
   lastLogin?: string;
 }
 
@@ -318,6 +318,8 @@ export const usePermissions = () => {
   const ROLE_HIERARCHY: Record<string, number> = {
     'ReadOnly': 1,
     'User': 2,
+    'Trader': 2,
+    'Builder': 3,
     'Validator': 3,
     'Admin': 4,
   };
@@ -352,6 +354,8 @@ export const usePermissions = () => {
     canAccess: checkPermission,
     isAdmin: user?.role === 'Admin',
     isUser: user?.role === 'User' || user?.role === 'Admin',
+    isBuilder: user?.role === 'Builder' || user?.role === 'Admin',
+    isTrader: user?.role === 'Trader' || user?.role === 'Admin',
     isValidator: user?.role === 'Validator' || user?.role === 'Admin',
     isReadOnly: !!user, // All authenticated users can read
   };

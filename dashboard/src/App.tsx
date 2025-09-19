@@ -1,12 +1,15 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
-import { AuthProvider } from './auth/AuthContext';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ProtectedRoute, AdminRoute, UserRoute } from './auth/ProtectedRoute';
 import LoginPage from './auth/LoginPage';
 import AdminDashboard from './dashboards/AdminDashboard';
 import ImprovedAdminDashboard from './dashboards/ImprovedAdminDashboard';
 import UserDashboard from './dashboards/UserDashboard';
+import BuilderDashboard from './dashboards/BuilderDashboard';
+import TraderDashboard from './dashboards/TraderDashboard';
+import RoleSelector from './components/RoleSelector';
 
 const theme = createTheme({
   palette: {
@@ -84,10 +87,27 @@ const theme = createTheme({
   },
 });
 
-function App() {
-  // Check if running on admin or user port
-  const isAdmin = window.location.port === '3002' || window.location.port === '3001';
+// Component to handle role-based routing
+function RoleBasedRoute() {
+  const { user } = useAuth();
   
+  // Redirect based on user role
+  if (!user) return <Navigate to="/login" replace />;
+  
+  switch(user.role) {
+    case 'Admin':
+      return <Navigate to="/admin" replace />;
+    case 'Builder':
+      return <Navigate to="/builder" replace />;
+    case 'Trader':
+      return <Navigate to="/trader" replace />;
+    case 'User':
+    default:
+      return <Navigate to="/dashboard" replace />;
+  }
+}
+
+function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -101,7 +121,9 @@ function App() {
             <Route 
               path="/" 
               element={
-                <Navigate to={isAdmin ? "/admin" : "/dashboard"} replace />
+                <ProtectedRoute>
+                  <RoleBasedRoute />
+                </ProtectedRoute>
               } 
             />
             
@@ -120,8 +142,38 @@ function App() {
               path="/dashboard" 
               element={
                 <UserRoute>
-                  {isAdmin ? <ImprovedAdminDashboard /> : <UserDashboard />}
+                  <UserDashboard />
                 </UserRoute>
+              } 
+            />
+            
+            {/* Builder dashboard */}
+            <Route 
+              path="/builder" 
+              element={
+                <ProtectedRoute>
+                  <BuilderDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Trader dashboard */}
+            <Route 
+              path="/trader" 
+              element={
+                <ProtectedRoute>
+                  <TraderDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Role selector for testing */}
+            <Route 
+              path="/roles" 
+              element={
+                <ProtectedRoute>
+                  <RoleSelector />
+                </ProtectedRoute>
               } 
             />
             
