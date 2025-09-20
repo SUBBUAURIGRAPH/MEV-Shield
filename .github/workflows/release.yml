@@ -1,0 +1,396 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Is this a pre-release?'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================
+  # Create Release
+  # ============================================
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        echo "Generating changelog for ${{ steps.version.outputs.version }}"
+        
+        # Get the previous tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -n "$PREV_TAG" ]; then
+          echo "## Changes since $PREV_TAG" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # Get commits since last tag
+          git log --pretty=format:"- %s" $PREV_TAG..HEAD >> CHANGELOG.md
+        else
+          echo "## Initial Release" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "🎉 First release of MEV Shield platform!" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Features" >> CHANGELOG.md
+          echo "- 🛡️ Live MEV protection across 5 chains" >> CHANGELOG.md
+          echo "- 📊 Real-time MEV detection and alerts" >> CHANGELOG.md
+          echo "- 🔄 Flashbots integration" >> CHANGELOG.md
+          echo "- 💼 Multi-role dashboard system" >> CHANGELOG.md
+          echo "- 🚀 Production-ready Docker deployment" >> CHANGELOG.md
+          echo "- 🔐 Enterprise security features" >> CHANGELOG.md
+        fi
+        
+        echo "" >> CHANGELOG.md
+        echo "### Technical Details" >> CHANGELOG.md
+        echo "- **Frontend**: React 18 with Material-UI" >> CHANGELOG.md
+        echo "- **Backend**: Node.js with Express" >> CHANGELOG.md
+        echo "- **Live Protection**: Real-time blockchain monitoring" >> CHANGELOG.md
+        echo "- **Deployment**: Docker with nginx reverse proxy" >> CHANGELOG.md
+        echo "- **Security**: Comprehensive security scanning" >> CHANGELOG.md
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        release_name: MEV Shield ${{ steps.version.outputs.version }}
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: ${{ github.event.inputs.prerelease || false }}
+
+  # ============================================
+  # Build Release Artifacts
+  # ============================================
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [create-release]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+        cache-dependency-path: |
+          dashboard/package-lock.json
+          backend-mock/package-lock.json
+          backend-live/package-lock.json
+
+    # Build production package
+    - name: Build production package
+      run: |
+        chmod +x build_production.sh
+        ./build_production.sh
+
+    - name: Create additional release artifacts
+      run: |
+        # Create source archive
+        git archive --format=tar.gz --prefix=mev-shield-${{ needs.create-release.outputs.version }}/ HEAD > mev-shield-source-${{ needs.create-release.outputs.version }}.tar.gz
+        
+        # Create checksums
+        sha256sum mev-shield-production.tar.gz > checksums.txt
+        sha256sum mev-shield-source-${{ needs.create-release.outputs.version }}.tar.gz >> checksums.txt
+        
+        # Create deployment guide
+        cat > DEPLOYMENT.md << 'EOF'
+        # MEV Shield Deployment Guide
+        
+        ## Quick Start
+        
+        1. Download `mev-shield-production.tar.gz`
+        2. Extract: `tar -xzf mev-shield-production.tar.gz`
+        3. Deploy: `cd mev-shield-production && ./deploy.sh`
+        
+        ## Requirements
+        
+        - Docker 20.10+
+        - Docker Compose 2.0+
+        - 4GB+ RAM
+        - 20GB+ disk space
+        
+        ## URLs
+        
+        - Main App: https://your-domain
+        - Admin: https://your-domain/admin
+        - API: https://your-domain/api/
+        - Live Protection: https://your-domain/api/live/
+        
+        ## Test Accounts
+        
+        - admin@mevshield.ai / admin123
+        - user@mevshield.ai / user123
+        - builder@mevshield.ai / builder123
+        - trader@mevshield.ai / trader123
+        
+        For detailed instructions, see README.md in the package.
+        EOF
+
+    # Set up Docker Buildx
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Build and push release images
+    - name: Build and push frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./dashboard
+        file: ./dashboard/Dockerfile.production
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ needs.create-release.outputs.version }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+        labels: |
+          org.opencontainers.image.title=MEV Shield Frontend
+          org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+    - name: Build and push backend-mock image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend-mock
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-mock:${{ needs.create-release.outputs.version }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-mock:latest
+        labels: |
+          org.opencontainers.image.title=MEV Shield Backend Mock
+          org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+    - name: Build and push backend-live image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend-live
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-live:${{ needs.create-release.outputs.version }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-live:latest
+        labels: |
+          org.opencontainers.image.title=MEV Shield Backend Live
+          org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+    # Upload release assets
+    - name: Upload release assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./mev-shield-production.tar.gz
+        asset_name: mev-shield-production.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload source archive
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./mev-shield-source-${{ needs.create-release.outputs.version }}.tar.gz
+        asset_name: mev-shield-source-${{ needs.create-release.outputs.version }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload checksums
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./checksums.txt
+        asset_name: checksums.txt
+        asset_content_type: text/plain
+
+    - name: Upload deployment guide
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./DEPLOYMENT.md
+        asset_name: DEPLOYMENT.md
+        asset_content_type: text/markdown
+
+  # ============================================
+  # Deploy Release
+  # ============================================
+  deploy-release:
+    name: Deploy Release to Production
+    runs-on: ubuntu-latest
+    needs: [create-release, build-artifacts]
+    environment: production
+    
+    steps:
+    - name: Deploy to production
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USER }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        port: ${{ secrets.PRODUCTION_PORT || 22 }}
+        script: |
+          set -e
+          
+          VERSION="${{ needs.create-release.outputs.version }}"
+          
+          # Create backup
+          BACKUP_DIR="/opt/mev-shield-backups/release-backup-$(date +%Y%m%d_%H%M%S)"
+          mkdir -p $BACKUP_DIR
+          cp -r /opt/mev-shield/* $BACKUP_DIR/ || true
+          
+          # Update deployment directory
+          cd /opt/mev-shield
+          
+          # Login to registry
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # Pull release images
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:$VERSION
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-mock:$VERSION
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-live:$VERSION
+          
+          # Update docker-compose with release tags
+          sed -i "s|image: .*frontend.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:$VERSION|g" docker-compose.production.yml
+          sed -i "s|image: .*backend-mock.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-mock:$VERSION|g" docker-compose.production.yml
+          sed -i "s|image: .*backend-live.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend-live:$VERSION|g" docker-compose.production.yml
+          
+          # Deploy
+          docker-compose -f docker-compose.production.yml up -d
+          
+          # Health checks
+          sleep 30
+          curl -f https://dev.mevshield.ai/health || exit 1
+          curl -f https://dev.mevshield.ai/api/health || exit 1
+          curl -f https://dev.mevshield.ai/api/live/health || exit 1
+          
+          # Tag deployment
+          echo "$VERSION" > /opt/mev-shield/VERSION
+          echo "✅ Release $VERSION deployed successfully"
+
+  # ============================================
+  # Post-Release Testing
+  # ============================================
+  post-release-tests:
+    name: Post-Release Testing
+    runs-on: ubuntu-latest
+    needs: [deploy-release]
+    
+    steps:
+    - name: Run post-deployment tests
+      run: |
+        echo "Running post-release validation..."
+        
+        # Test all endpoints
+        endpoints=(
+          "https://dev.mevshield.ai/health"
+          "https://dev.mevshield.ai/api/health"
+          "https://dev.mevshield.ai/api/live/health"
+          "https://dev.mevshield.ai/api/live/stats"
+          "https://dev.mevshield.ai/api/live/chains"
+        )
+        
+        for endpoint in "${endpoints[@]}"; do
+          if curl -f -s "$endpoint" > /dev/null; then
+            echo "✅ $endpoint is healthy"
+          else
+            echo "❌ $endpoint failed"
+            exit 1
+          fi
+        done
+        
+        echo "🎉 All post-release tests passed!"
+
+  # ============================================
+  # Notifications
+  # ============================================
+  notify-release:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [create-release, post-release-tests]
+    if: always()
+    
+    steps:
+    - name: Notify successful release
+      if: needs.post-release-tests.result == 'success'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'success'
+        channel: '#releases'
+        text: |
+          🚀 MEV Shield ${{ needs.create-release.outputs.version }} Released!
+          
+          ✅ Production deployment successful
+          🌐 Live at: https://dev.mevshield.ai
+          📦 Download: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.version }}
+          
+          🛡️ Features:
+          • Live MEV Protection
+          • 5-Chain Monitoring  
+          • Real-time Detection
+          • Enterprise Security
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify failed release
+      if: needs.post-release-tests.result == 'failure'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'failure'
+        channel: '#releases'
+        text: |
+          ❌ MEV Shield ${{ needs.create-release.outputs.version }} Release Failed!
+          
+          Please check the workflow logs and fix any issues.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

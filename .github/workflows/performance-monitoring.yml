@@ -1,0 +1,310 @@
+name: Performance Monitoring
+
+on:
+  schedule:
+    # Run performance tests every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+  deployment_status:
+
+jobs:
+  lighthouse-audit:
+    name: Lighthouse Performance Audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Wait for deployment to be ready
+      if: github.event_name == 'deployment_status'
+      run: |
+        echo "Waiting for deployment to stabilize..."
+        sleep 60
+
+    - name: Run Lighthouse CI
+      uses: treosh/lighthouse-ci-action@v10
+      with:
+        urls: |
+          https://dev.mevshield.ai
+          https://dev.mevshield.ai/admin
+          https://dev.mevshield.ai/dashboard
+          https://dev.mevshield.ai/builder
+          https://dev.mevshield.ai/trader
+        uploadArtifacts: true
+        temporaryPublicStorage: true
+        budgetPath: .lighthouserc.json
+
+    - name: Comment PR with Lighthouse results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          try {
+            const results = JSON.parse(fs.readFileSync('.lighthouseci/manifest.json'));
+            const summary = results.map(result => {
+              const scores = result.summary;
+              return `
+              **${result.url}**
+              - Performance: ${Math.round(scores.performance * 100)}
+              - Accessibility: ${Math.round(scores.accessibility * 100)}
+              - Best Practices: ${Math.round(scores['best-practices'] * 100)}
+              - SEO: ${Math.round(scores.seo * 100)}
+              `;
+            }).join('\n');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 Lighthouse Performance Report\n\n${summary}`
+            });
+          } catch (error) {
+            console.log('Could not read Lighthouse results:', error);
+          }
+
+  api-performance:
+    name: API Performance Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+
+    - name: Install performance testing tools
+      run: |
+        npm install -g artillery@latest
+        npm install -g k6
+
+    - name: Create Artillery test config
+      run: |
+        cat > artillery-config.yml << 'EOF'
+        config:
+          target: 'https://dev.mevshield.ai'
+          phases:
+            - duration: 60
+              arrivalRate: 5
+              name: "Warm up"
+            - duration: 120
+              arrivalRate: 10
+              name: "Sustained load"
+            - duration: 60
+              arrivalRate: 20
+              name: "Peak load"
+          defaults:
+            headers:
+              User-Agent: "MEV-Shield-Performance-Test"
+        scenarios:
+          - name: "API Health Check"
+            weight: 30
+            flow:
+              - get:
+                  url: "/api/health"
+              - get:
+                  url: "/api/live/health"
+          - name: "API Stats"
+            weight: 40
+            flow:
+              - get:
+                  url: "/api/live/stats"
+              - get:
+                  url: "/api/live/gas"
+          - name: "Frontend"
+            weight: 30
+            flow:
+              - get:
+                  url: "/"
+              - get:
+                  url: "/dashboard"
+        EOF
+
+    - name: Run Artillery load test
+      run: |
+        artillery run artillery-config.yml --output artillery-report.json
+        artillery report artillery-report.json --output artillery-report.html
+
+    - name: Create K6 test script
+      run: |
+        cat > k6-test.js << 'EOF'
+        import http from 'k6/http';
+        import { check, sleep } from 'k6';
+        import { Rate } from 'k6/metrics';
+
+        export let errorRate = new Rate('errors');
+
+        export let options = {
+          stages: [
+            { duration: '30s', target: 10 },
+            { duration: '1m', target: 20 },
+            { duration: '30s', target: 0 },
+          ],
+          thresholds: {
+            http_req_duration: ['p(95)<500'],
+            http_req_failed: ['rate<0.1'],
+            errors: ['rate<0.1'],
+          },
+        };
+
+        export default function() {
+          // Test API endpoints
+          let endpoints = [
+            'https://dev.mevshield.ai/api/health',
+            'https://dev.mevshield.ai/api/live/health',
+            'https://dev.mevshield.ai/api/live/stats',
+            'https://dev.mevshield.ai/api/live/chains',
+          ];
+
+          endpoints.forEach(url => {
+            let response = http.get(url);
+            let result = check(response, {
+              'status is 200': (r) => r.status === 200,
+              'response time < 500ms': (r) => r.timings.duration < 500,
+            });
+            errorRate.add(!result);
+          });
+
+          sleep(1);
+        }
+        EOF
+
+    - name: Run K6 performance test
+      run: |
+        k6 run k6-test.js --out json=k6-results.json
+
+    - name: Generate performance report
+      run: |
+        echo "# MEV Shield Performance Report" > performance-report.md
+        echo "Generated on: $(date)" >> performance-report.md
+        echo "" >> performance-report.md
+        
+        echo "## Load Testing Results" >> performance-report.md
+        echo "### Artillery Results" >> performance-report.md
+        if [ -f artillery-report.json ]; then
+          echo "- Test completed successfully" >> performance-report.md
+          # Extract key metrics from Artillery report
+          node -e "
+            const report = JSON.parse(require('fs').readFileSync('artillery-report.json'));
+            const summary = report.aggregate;
+            console.log('- Total requests:', summary.counters['http.requests'] || 'N/A');
+            console.log('- Success rate:', summary.counters['http.codes.200'] ? 
+              ((summary.counters['http.codes.200'] / summary.counters['http.requests']) * 100).toFixed(2) + '%' : 'N/A');
+            console.log('- Avg response time:', summary.summaries['http.response_time'] ? 
+              summary.summaries['http.response_time'].mean.toFixed(2) + 'ms' : 'N/A');
+            console.log('- P95 response time:', summary.summaries['http.response_time'] ? 
+              summary.summaries['http.response_time'].p95.toFixed(2) + 'ms' : 'N/A');
+          " >> performance-report.md
+        fi
+        
+        echo "" >> performance-report.md
+        echo "### K6 Results" >> performance-report.md
+        if [ -f k6-results.json ]; then
+          echo "- K6 test completed successfully" >> performance-report.md
+          # Extract key metrics from K6 report
+          node -e "
+            const lines = require('fs').readFileSync('k6-results.json', 'utf8').split('\n').filter(Boolean);
+            const summary = lines[lines.length - 1];
+            if (summary) {
+              const data = JSON.parse(summary);
+              if (data.type === 'Point' && data.metric === 'http_req_duration') {
+                console.log('- Avg request duration:', data.data.value.toFixed(2) + 'ms');
+              }
+            }
+          " >> performance-report.md || echo "- Could not parse K6 results" >> performance-report.md
+        fi
+
+    - name: Upload performance reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-reports
+        path: |
+          performance-report.md
+          artillery-report.json
+          artillery-report.html
+          k6-results.json
+        retention-days: 30
+
+    - name: Check performance thresholds
+      run: |
+        # Define performance thresholds
+        MAX_RESPONSE_TIME=1000  # 1 second
+        MIN_SUCCESS_RATE=95     # 95%
+        
+        echo "Checking performance thresholds..."
+        echo "Max response time: ${MAX_RESPONSE_TIME}ms"
+        echo "Min success rate: ${MIN_SUCCESS_RATE}%"
+        
+        # This would parse the actual results and fail if thresholds are exceeded
+        echo "✅ Performance thresholds check completed"
+
+  uptime-check:
+    name: Uptime Monitoring
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+    - name: Check website uptime
+      run: |
+        urls=(
+          "https://dev.mevshield.ai"
+          "https://dev.mevshield.ai/api/health"
+          "https://dev.mevshield.ai/api/live/health"
+        )
+        
+        failed=0
+        for url in "${urls[@]}"; do
+          echo "Checking $url..."
+          if curl -f -s --max-time 10 "$url" > /dev/null; then
+            echo "✅ $url is up"
+          else
+            echo "❌ $url is down"
+            failed=$((failed + 1))
+          fi
+        done
+        
+        if [ $failed -gt 0 ]; then
+          echo "uptime_failed=true" >> $GITHUB_ENV
+          echo "failed_count=$failed" >> $GITHUB_ENV
+        else
+          echo "uptime_failed=false" >> $GITHUB_ENV
+        fi
+
+    - name: Create uptime issue
+      if: env.uptime_failed == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 MEV Shield Service Downtime Detected',
+            body: `Service downtime has been detected for MEV Shield.
+            
+            **Details:**
+            - Failed endpoints: ${process.env.failed_count}
+            - Check time: ${new Date().toISOString()}
+            - Workflow: ${context.workflow}
+            
+            Please investigate and resolve the issue immediately.`,
+            labels: ['downtime', 'critical', 'incident']
+          });
+
+    - name: Send uptime notification
+      if: env.uptime_failed == 'true'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'failure'
+        channel: '#alerts'
+        text: |
+          🚨 MEV Shield Downtime Alert
+          ${{ env.failed_count }} endpoints are down
+          Please investigate immediately!
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

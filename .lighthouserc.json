@@ -1,0 +1,25 @@
+{
+  "ci": {
+    "collect": {
+      "numberOfRuns": 3,
+      "url": [
+        "https://dev.mevshield.ai",
+        "https://dev.mevshield.ai/admin",
+        "https://dev.mevshield.ai/dashboard",
+        "https://dev.mevshield.ai/builder",
+        "https://dev.mevshield.ai/trader"
+      ]
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": ["warn", {"minScore": 0.8}],
+        "categories:accessibility": ["error", {"minScore": 0.9}],
+        "categories:best-practices": ["warn", {"minScore": 0.8}],
+        "categories:seo": ["warn", {"minScore": 0.8}]
+      }
+    },
+    "upload": {
+      "target": "temporary-public-storage"
+    }
+  }
+}

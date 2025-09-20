@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mevshield-backend
+    restart: unless-stopped
+    expose:
+      - "8080"
+      - "8081"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      WS_PORT: 8081
+      JWT_SECRET: ${JWT_SECRET:-mev-shield-secret-key-2024}
+      CACHE_TTL_PRICES: 60000
+      CACHE_TTL_BLOCKCHAIN: 30000
+      CACHE_TTL_MEV: 300000
+      REDIS_URL: redis://redis:6379
+      UNISWAP_V3_SUBGRAPH_URL: https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3
+      SUSHISWAP_SUBGRAPH_URL: https://api.thegraph.com/subgraphs/name/sushiswap/exchange
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      - redis
+    networks:
+      - mevshield-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Frontend Service with Nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: mevshield-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://backend:8080
+      WS_URL: ws://backend:8081
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - mevshield-network
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: mevshield-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - mevshield-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # MongoDB for future data persistence
+  mongodb:
+    image: mongo:6-jammy
+    container_name: mevshield-mongodb
+    restart: unless-stopped
+    expose:
+      - "27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-mevshield}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mevshield123}
+      MONGO_INITDB_DATABASE: mevshield
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mevshield-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  mevshield-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  redis-data:
+    driver: local
+  mongodb-data:
+    driver: local
