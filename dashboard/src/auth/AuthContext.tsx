@@ -51,8 +51,8 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+// API base URL - use relative path to go through nginx proxy
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 // Configure axios defaults
 axios.defaults.baseURL = API_BASE_URL;

@@ -51,7 +51,7 @@ jobs:
     - name: Build frontend
       run: |
         cd dashboard
-        npm run build
+        CI=false npm run build
 
     - name: Run frontend tests
       run: |

@@ -1,0 +1,37 @@
+# Backend Dockerfile for MEV Shield
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY backend-mock/package*.json ./
+RUN npm install --production
+
+# Copy source code
+COPY backend-mock/ ./
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+
+USER nodejs
+
+# Expose port
+EXPOSE 8080
+
+# Environment variables
+ENV NODE_ENV=production \
+    PORT=8080 \
+    CACHE_TTL_PRICES=60000 \
+    CACHE_TTL_BLOCKCHAIN=30000 \
+    CACHE_TTL_MEV=300000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:8080/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1);})" || exit 1
+
+# Start command - using server.js for stability
+CMD ["node", "server.js"]

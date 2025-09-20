@@ -74,6 +74,8 @@ export const getCommonChartOptions = (title?: string): any => ({
         },
         color: '#666',
         padding: 8,
+        autoSkip: true,
+        maxTicksLimit: 8,
         callback: function(value: any) {
           if (value >= 1000000) {
             return (value / 1000000).toFixed(1) + 'M';
@@ -83,8 +85,14 @@ export const getCommonChartOptions = (title?: string): any => ({
           return value.toLocaleString();
         },
       },
-      // Dynamic scaling based on data
+      // Better dynamic scaling based on data
+      grace: '5%',
       suggestedMax: undefined,
+      adapters: {
+        date: {
+          locale: 'en-US'
+        }
+      }
     },
   },
   interaction: {
@@ -97,70 +105,106 @@ export const getCommonChartOptions = (title?: string): any => ({
   },
 });
 
-// Line chart specific options
-export const getLineChartOptions = (title?: string): any => ({
-  ...getCommonChartOptions(title),
-  plugins: {
-    ...getCommonChartOptions(title).plugins,
-    tooltip: {
-      ...getCommonChartOptions(title).plugins?.tooltip,
-      callbacks: {
-        ...getCommonChartOptions(title).plugins?.tooltip?.callbacks,
-        title: function(tooltipItems: any) {
-          return tooltipItems[0].label;
+// Line chart specific options with improved scaling
+export const getLineChartOptions = (title?: string): any => {
+  const baseOptions = getCommonChartOptions(title);
+  return {
+    ...baseOptions,
+    plugins: {
+      ...baseOptions.plugins,
+      tooltip: {
+        ...baseOptions.plugins?.tooltip,
+        callbacks: {
+          ...baseOptions.plugins?.tooltip?.callbacks,
+          title: function(tooltipItems: any) {
+            return tooltipItems[0].label;
+          },
         },
       },
     },
-  },
-  elements: {
-    line: {
-      tension: 0.35,
-      borderWidth: 2.5,
+    scales: {
+      ...baseOptions.scales,
+      y: {
+        ...baseOptions.scales.y,
+        // Improved scaling for line charts
+        grace: '10%',
+        beginAtZero: false,
+        ticks: {
+          ...baseOptions.scales.y.ticks,
+          precision: 0,
+          maxTicksLimit: 6,
+        },
+      },
     },
-    point: {
-      radius: 4,
-      hoverRadius: 6,
-      backgroundColor: '#fff',
-      borderWidth: 2,
-      hoverBorderWidth: 3,
+    elements: {
+      line: {
+        tension: 0.35,
+        borderWidth: 2.5,
+      },
+      point: {
+        radius: 4,
+        hoverRadius: 6,
+        backgroundColor: '#fff',
+        borderWidth: 2,
+        hoverBorderWidth: 3,
+      },
     },
-  },
-});
+  };
+};
 
-// Bar chart specific options
-export const getBarChartOptions = (title?: string): any => ({
-  ...getCommonChartOptions(title),
-  scales: {
-    ...getCommonChartOptions(title).scales,
-    y: {
-      ...getCommonChartOptions(title).scales?.y,
-      ticks: {
-        ...getCommonChartOptions(title).scales?.y?.ticks,
-        callback: function(value: any) {
-          if (title?.includes('ETH') || title?.includes('Value')) {
-            return 'Ξ' + value.toFixed(2);
-          }
-          return value.toLocaleString();
+// Bar chart specific options with improved scaling
+export const getBarChartOptions = (title?: string): any => {
+  const baseOptions = getCommonChartOptions(title);
+  return {
+    ...baseOptions,
+    scales: {
+      ...baseOptions.scales,
+      x: {
+        ...baseOptions.scales.x,
+        // Better bar spacing
+        categoryPercentage: 0.8,
+        barPercentage: 0.9,
+      },
+      y: {
+        ...baseOptions.scales.y,
+        // Improved Y-axis for bar charts
+        grace: '15%',
+        ticks: {
+          ...baseOptions.scales.y.ticks,
+          maxTicksLimit: 5,
+          callback: function(value: any) {
+            if (title?.includes('ETH') || title?.includes('Value')) {
+              return 'Ξ' + value.toFixed(2);
+            }
+            if (value >= 1000000) {
+              return (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+              return (value / 1000).toFixed(0) + 'K';
+            }
+            return value.toLocaleString();
+          },
         },
       },
     },
-  },
-  plugins: {
-    ...getCommonChartOptions(title).plugins,
-    legend: {
-      ...getCommonChartOptions(title).plugins?.legend,
-      display: false,
+    plugins: {
+      ...baseOptions.plugins,
+      legend: {
+        ...baseOptions.plugins?.legend,
+        display: false,
+      },
     },
-  },
-  datasets: {
-    bar: {
-      borderRadius: 6,
-      borderSkipped: false,
-      barThickness: 'flex' as any,
-      maxBarThickness: 50,
+    datasets: {
+      bar: {
+        borderRadius: 6,
+        borderSkipped: false,
+        barThickness: 'flex' as any,
+        maxBarThickness: 50,
+        categoryPercentage: 0.8,
+        barPercentage: 0.9,
+      },
     },
-  },
-});
+  };
+};
 
 // Doughnut chart options
 export const getDoughnutChartOptions = (title?: string): any => ({

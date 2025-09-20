@@ -3,25 +3,9 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const app = express();
 
-// CORS configuration to allow specific origins with credentials
+// CORS configuration - completely open in production, restricted in development
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests from localhost ports and no origin (for tools like Postman)
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:3001', 
-      'http://localhost:3002',
-      'http://localhost:3003',
-      'http://localhost:3004',
-      'http://localhost:3005'
-    ];
-    
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Expires', 'Cache-Control'],

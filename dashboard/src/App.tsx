@@ -16,6 +16,7 @@ import SecurityPage from './pages/SecurityPage';
 import WalletPage from './pages/WalletPage';
 import SettingsPage from './pages/SettingsPage';
 import DEXProtection from './components/DEXProtection';
+import RealTimeDetection from './components/MEVDetection/RealTimeDetection';
 
 // Light theme variant
 const lightTheme = createTheme({
@@ -228,6 +229,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DEXProtection />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/detection" 
+              element={
+                <ProtectedRoute>
+                  <RealTimeDetection />
                 </ProtectedRoute>
               } 
             />
