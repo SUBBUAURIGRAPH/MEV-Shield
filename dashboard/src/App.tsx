@@ -1,53 +1,54 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, createTheme } from '@mui/material';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ProtectedRoute, AdminRoute, UserRoute, BuilderRoute, TraderRoute } from './auth/ProtectedRoute';
-import LoginPage from './auth/LoginPage';
+import ModernLoginPage from './auth/ModernLoginPage';
 import AdminDashboard from './dashboards/AdminDashboard';
 import ImprovedAdminDashboard from './dashboards/ImprovedAdminDashboard';
 import UserDashboard from './dashboards/UserDashboard';
 import BuilderDashboard from './dashboards/BuilderDashboard';
 import TraderDashboard from './dashboards/TraderDashboard';
 import RoleSelector from './components/RoleSelector';
+import ModernNavigation from './components/ModernNavigation';
+import darkTheme from './theme/theme';
+import SecurityPage from './pages/SecurityPage';
+import WalletPage from './pages/WalletPage';
+import SettingsPage from './pages/SettingsPage';
+import DEXProtection from './components/DEXProtection';
 
-const theme = createTheme({
+// Light theme variant
+const lightTheme = createTheme({
   palette: {
+    mode: 'light',
     primary: {
-      main: '#4CAF50',
+      main: '#00A3CC',
+      light: '#00D4FF',
+      dark: '#007399',
     },
     secondary: {
-      main: '#2196F3',
+      main: '#5841CC',
+      light: '#7B61FF',
+      dark: '#4030A0',
     },
     success: {
-      main: '#4CAF50',
+      main: '#00CC6A',
     },
     error: {
-      main: '#f44336',
+      main: '#CC3946',
     },
     warning: {
-      main: '#ff9800',
+      main: '#CC9300',
     },
     background: {
-      default: '#f5f5f5',
+      default: '#F5F7FA',
+      paper: '#FFFFFF',
     },
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     h1: {
-      fontWeight: 600,
-    },
-    h2: {
-      fontWeight: 600,
-    },
-    h3: {
-      fontWeight: 600,
-    },
-    h4: {
-      fontWeight: 600,
-    },
-    h5: {
-      fontWeight: 600,
+      fontWeight: 800,
     },
     h6: {
       fontWeight: 600,
@@ -108,14 +109,21 @@ function RoleBasedRoute() {
 }
 
 function App() {
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const currentTheme = isDarkMode ? darkTheme : lightTheme;
+  
+  const handleThemeToggle = () => {
+    setIsDarkMode(!isDarkMode);
+  };
+
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={currentTheme}>
       <CssBaseline />
       <AuthProvider>
         <Router>
           <Routes>
             {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login" element={<ModernLoginPage />} />
             
             {/* Protected routes */}
             <Route 
@@ -186,6 +194,55 @@ function App() {
                 </UserRoute>
               } 
             />
+            
+            {/* Common pages accessible to all authenticated users */}
+            <Route 
+              path="/wallet" 
+              element={
+                <ProtectedRoute>
+                  <WalletPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/settings" 
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/security" 
+              element={
+                <AdminRoute>
+                  <SecurityPage />
+                </AdminRoute>
+              } 
+            />
+            
+            <Route 
+              path="/protection" 
+              element={
+                <ProtectedRoute>
+                  <DEXProtection />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Redirect common navigation paths to appropriate dashboards */}
+            <Route path="/analytics" element={<Navigate to="/admin" replace />} />
+            <Route path="/users" element={<Navigate to="/admin" replace />} />
+            <Route path="/trading" element={<Navigate to="/trader" replace />} />
+            <Route path="/portfolio" element={<Navigate to="/trader" replace />} />
+            <Route path="/builds" element={<Navigate to="/builder" replace />} />
+            <Route path="/performance" element={<Navigate to="/builder" replace />} />
+            <Route path="/metrics" element={<Navigate to="/builder" replace />} />
+            
+            {/* Profile page redirects to settings */}
+            <Route path="/profile" element={<Navigate to="/settings" replace />} />
             
             {/* Catch all - redirect to login */}
             <Route path="*" element={<Navigate to="/login" replace />} />

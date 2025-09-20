@@ -53,6 +53,7 @@ import {
   ShowChart,
   CandlestickChart,
 } from '@mui/icons-material';
+import DEXProtection from '../components/DEXProtection';
 
 interface Portfolio {
   totalValue: string;
@@ -346,6 +347,7 @@ const TraderDashboard: React.FC = () => {
                 <Tab label="Top Pairs" icon={<ShowChart />} iconPosition="start" />
                 <Tab label="Recent Trades" icon={<Timeline />} iconPosition="start" />
                 <Tab label="Price Alerts" icon={<Warning />} iconPosition="start" />
+                <Tab label="DEX Protection" icon={<Shield />} iconPosition="start" />
               </Tabs>
 
               {/* Top Pairs Tab */}
@@ -476,6 +478,13 @@ const TraderDashboard: React.FC = () => {
                   <Button variant="outlined" fullWidth sx={{ mt: 2 }}>
                     Add Price Alert
                   </Button>
+                </Box>
+              )}
+
+              {/* DEX Protection Tab */}
+              {activeTab === 3 && (
+                <Box sx={{ p: 0 }}>
+                  <DEXProtection />
                 </Box>
               )}
             </Paper>
